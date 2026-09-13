@@ -1,0 +1,6 @@
+.build/
+.build-x86/
+build/
+Vendor/
+.DS_Store
+*.xcuserstate

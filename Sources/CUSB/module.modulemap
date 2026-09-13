@@ -1,0 +1,6 @@
+// Points at the copy built by Scripts/build-libusb.sh, not Homebrew's: the shipped binary has to be
+// linked against a libusb compiled for the macOS version this app claims to support.
+module CUSB [system] {
+  header "../../Vendor/include/libusb-1.0/libusb.h"
+  export *
+}
