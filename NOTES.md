@@ -202,8 +202,20 @@ Intel Mac downloading an arm64-only build gets a crash, not a message.
 Verified on 0.1.0: `vtool -show-build` reports `minos 14.0` on both slices, `otool -L` lists only
 system libraries, and the resulting disk image is 1.2 MB.
 
-Still missing for a public release: a Developer ID certificate and notarisation. Until those exist,
-macOS warns on first open and the user has to right-click → Open.
+Still missing for a public release: a Developer ID certificate and notarisation. Measured against the
+published 0.1.0 dmg, downloaded and given the quarantine flag a browser would set:
+
+```
+codesign -dvv  →  Signature=adhoc, TeamIdentifier=not set
+spctl -a -vvv  →  rejected
+stapler validate → does not have a ticket stapled to it
+```
+
+So macOS **refuses** the first launch — it does not merely warn. And since macOS 15 the Control-click
+→ Open shortcut no longer overrides this, so the instruction to give users is: try to open it, let it
+be blocked, then System Settings → Privacy & Security → Open Anyway, which appears there for about an
+hour after the attempt. Anywhere this app or its website tells a user how to get in, it must say
+that, not the old shortcut.
 
 ## Still outstanding
 

@@ -41,7 +41,9 @@ rm -rf "$STAGE"
 echo "built: $DMG"
 echo "  $(du -h "$DMG" | cut -f1) · $ARCHS · minimum macOS $(defaults read "$APP/Contents/Info.plist" LSMinimumSystemVersion)"
 echo
-echo "Not signed with a Developer ID, so macOS will warn on first open. To fix that, once an Apple"
+echo "Not signed with a Developer ID. macOS REFUSES the first launch (spctl: rejected), and since"
+echo "macOS 15 Control-click no longer overrides it — the user has to allow the app once in"
+echo "System Settings > Privacy & Security. To fix that properly, once an Apple"
 echo "Developer account exists and its certificate is installed:"
 echo
 echo "  codesign --force --deep --options runtime --timestamp \\"
