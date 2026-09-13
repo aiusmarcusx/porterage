@@ -1,0 +1,30 @@
+Porterage
+Copyright 2026 The Porterage Authors
+
+Licensed under the Apache License, Version 2.0. See LICENSE.
+
+
+Third-party components
+----------------------
+
+libusb (https://libusb.info) — LGPL-2.1-or-later.
+
+Porterage links libusb statically, which the LGPL permits on the condition that a
+recipient can relink the program against a modified libusb. That condition is met
+here: this repository contains the complete source of the program, and
+Scripts/build-libusb.sh reproduces the exact libusb build that ships in a release,
+so anyone can substitute their own copy and rebuild.
+
+libusb itself is not modified.
+
+
+Trademarks
+----------
+
+The Apache License grants no rights in trade names, trademarks or product names
+(section 6). "Porterage" is the name of this project and is not licensed with the
+code. A fork is welcome; a fork calling itself Porterage is not.
+
+"Android" is a trademark of Google LLC and "Mac" and "macOS" are trademarks of
+Apple Inc. Neither company is affiliated with this project. Those names appear here
+only to say which hardware the software talks to.

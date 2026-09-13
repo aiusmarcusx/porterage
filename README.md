@@ -68,3 +68,9 @@ Useful when reporting a problem: the output says which of the connection states 
 
 The only native dependency is libusb, built from source and linked statically, so a finished `.app`
 needs nothing installed on the user's machine.
+
+## Licence
+
+Apache-2.0 — see [LICENSE](LICENSE). The name Porterage is not part of that grant;
+the licence explicitly covers code, not trade names. Third-party components and the
+libusb relinking terms are set out in [NOTICE](NOTICE).
