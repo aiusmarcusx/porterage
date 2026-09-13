@@ -158,8 +158,12 @@ immediately.
 | Screenshots, downloaded images | No embedded thumbnail, so nothing comes back |
 | Reading the first 64 KiB and extracting it ourselves | 9 ms each, found one in 17 of 20 |
 
-The app tries `GetThumb`, then the 64 KiB route. Roughly 15% of a real phone falls through both and
-needs the full image fetched and scaled on the Mac — **not yet implemented**.
+The app tries `GetThumb`, then the 64 KiB route, then fetches the whole file and scales it with
+`CGImageSourceCreateThumbnailAtIndex`. Roughly 15% of a real phone reaches that third route.
+
+It runs as a second pass, after every visible tile already has something in it, and skips files over
+40 MiB. Verified with JPEGs written by `NSBitmapImageRep`, which embed no EXIF thumbnail at all: the
+first two routes return nothing for them and the grid still fills.
 
 ## Free space
 
@@ -186,15 +190,22 @@ Cancelling mid-transfer leaves nothing behind.
 The app links `libusb-1.0.a` statically, so a built `.app` has no Homebrew dependency —
 `otool -L` shows only system libraries.
 
-⚠️ **The Homebrew archive is built for macOS 26.** Linking it into a binary that claims
-`LSMinimumSystemVersion 14.0` produces a stream of `built for newer 'macOS' version` warnings and an
-app that may crash on macOS 14 or 15. Before any public build, libusb has to be compiled from source
-with the deployment target the app actually claims.
+`Scripts/build-libusb.sh` compiles libusb from source into `Vendor/`, universal and against the same
+minimum macOS the app claims. Homebrew's own archive is built for whatever macOS the build machine
+runs: linking that into a binary claiming `LSMinimumSystemVersion 14.0` produces a stream of
+`built for newer 'macOS' version` warnings and an app that can crash on macOS 14 and 15 — a failure
+invisible on the machine that built it. Do not substitute it.
+
+`Scripts/make-dmg.sh` refuses to package a binary that is not universal, for the same reason: an
+Intel Mac downloading an arm64-only build gets a crash, not a message.
+
+Verified on 0.1.0: `vtool -show-build` reports `minos 14.0` on both slices, `otool -L` lists only
+system libraries, and the resulting disk image is 1.2 MB.
+
+Still missing for a public release: a Developer ID certificate and notarisation. Until those exist,
+macOS warns on first open and the user has to right-click → Open.
 
 ## Still outstanding
 
-- [ ] Compile libusb from source against the real minimum macOS version (see Shipping above).
-- [ ] Three-tier thumbnails: fall back to fetching and scaling the full image.
-- [ ] Quick Look preview, and dragging out of the app into the Finder.
 - [ ] Test closing the MacBook lid mid-transfer.
 - [ ] Test the SD card path (needs a phone with a card).
