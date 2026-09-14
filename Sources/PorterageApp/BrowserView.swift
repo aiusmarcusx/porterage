@@ -253,10 +253,12 @@ struct BrowserView: View {
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
                 }
+                // 150 fits the widest measured English region, en_CA "2026-12-31, 10:59 AM" at
+                // 143 pt. Too narrow and the date wraps onto a second line rather than truncating.
                 Text(entry.modified.map(Self.dateFormatter.string(from:)) ?? "—")
                     .foregroundStyle(.tertiary)
                     .monospacedDigit()
-                    .frame(width: 120, alignment: .trailing)
+                    .frame(width: 150, alignment: .trailing)
             }
             .contentShape(Rectangle())
             // Has to be simultaneous: an ordinary onTapGesture swallows the single click the List
@@ -426,15 +428,16 @@ struct BrowserView: View {
         return "doc"
     }
 
-    /// Pinned to the Gregorian calendar and a fixed locale on purpose: a `dateFormat` string alone
-    /// still follows the Mac's region, which can render 2026 as the Buddhist year 2569 and turn
-    /// `HH` into a 12-hour clock with AM/PM.
+    /// Field order, separators and the 12- or 24-hour clock follow the user's region; only the
+    /// calendar is pinned, because a Buddhist-calendar region would otherwise show 2026 as 2569.
+    /// The calendar has to be set before the template: set afterwards, the pattern keeps the
+    /// region's era field and prints "13/9/2026 A". A template rather than `dateStyle = .short`,
+    /// which gives US and Thai users a two-digit year.
     private static let dateFormatter: DateFormatter = {
         let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
         f.calendar = Calendar(identifier: .gregorian)
         f.timeZone = .current
-        f.dateFormat = "dd/MM/yyyy HH:mm"
+        f.setLocalizedDateFormatFromTemplate("yMdjmm")
         return f
     }()
 
