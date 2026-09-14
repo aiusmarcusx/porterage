@@ -45,13 +45,19 @@ public struct MTPStorage: Equatable, Sendable {
 public enum MTPStatus: Equatable, Sendable {
     /// Looking for a phone, or waiting for one to be plugged in.
     case searching
-    /// Nothing on the USB bus that speaks MTP. Either no cable, or the phone is set to
-    /// "No data transfer" / "Photo transfer (PTP)" instead of "File transfer".
+    /// Nothing on the USB bus that speaks MTP. Either no cable, a charge-only cable, or the phone is
+    /// set to "No data transfer".
     case noDevice
+    /// A device answers as a camera: an Android phone set to "Transfer photos (PTP)" presents the
+    /// same interface class as MTP but leaves the MTP extension out of its device info.
+    case photoMode
     /// The session opens but the phone refuses to hand out its storage: it is locked.
     case locked
     /// Another program is holding the phone's USB interface.
     case busy
+    /// The phone's MTP interface is ours but it will not start a session, even after a USB reset —
+    /// the wedged state that only unplugging the cable clears.
+    case unresponsive
     /// Connected, storage readable, ready to work.
     case ready(MTPStorage)
 
@@ -66,6 +72,7 @@ public enum MTPError: LocalizedError {
     case phoneLocked
     case call(String, Int32)
     case notEnoughSpace(needed: UInt64, free: UInt64)
+    case incomplete(String)
 
     public var errorDescription: String? {
         switch self {
@@ -78,6 +85,8 @@ public enum MTPError: LocalizedError {
         case let .notEnoughSpace(needed, free):
             let f = ByteCountFormatter.string(fromByteCount: Int64(needed - free), countStyle: .file)
             return "The phone needs \(f) more free space."
+        case let .incomplete(name):
+            return "The phone stopped sending “\(name)” before the end. What arrived is kept, and copying it again continues from there."
         }
     }
 }

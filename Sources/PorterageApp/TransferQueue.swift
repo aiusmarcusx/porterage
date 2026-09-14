@@ -126,6 +126,14 @@ final class TransferQueue: ObservableObject {
     }
 
     private func runLoop() async {
+        // A long copy outlasts the Mac's idle timer, and a Mac that sleeps drops the USB session
+        // mid-file. This holds it awake while jobs run; closing the lid still puts it to sleep.
+        let activity = ProcessInfo.processInfo.beginActivity(
+            options: [.userInitiated, .idleSystemSleepDisabled],
+            reason: "Copying files between this Mac and the phone"
+        )
+        defer { ProcessInfo.processInfo.endActivity(activity) }
+
         while !pending.isEmpty {
             let (job, work) = pending.removeFirst()
             setState(job.id, .running)

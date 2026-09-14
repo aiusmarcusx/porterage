@@ -62,9 +62,17 @@ struct BrowserView: View {
             Button("Skip Duplicates") { browser.resolvePendingUpload(.skip) }
             Button("Cancel", role: .cancel) { browser.pendingUpload = nil }
         } message: {
+            Text(clashMessage)
+        }
+        .confirmationDialog(downloadClashQuestion, isPresented: .constant(browser.pendingDownload != nil)) {
+            Button("Keep Both") { browser.resolvePendingDownload(.keepBoth) }
+            Button("Replace", role: .destructive) { browser.resolvePendingDownload(.replace) }
+            Button("Skip Existing") { browser.resolvePendingDownload(.skip) }
+            Button("Cancel", role: .cancel) { browser.pendingDownload = nil }
+        } message: {
             Text("""
-            The phone's storage treats upper and lower case as the same name, so Replace will \
-            destroy the file that is already there.
+            Replace overwrites the files already on this Mac. Skip Existing copies only what is not \
+            there yet, which also finishes a copy that was interrupted.
             """)
         }
         .sheet(item: $previewing) { entry in
@@ -188,7 +196,7 @@ struct BrowserView: View {
         let count = browser.selection.count
         panel.message = "Choose where on this Mac to copy \(count) item\(count == 1 ? "" : "s")"
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        browser.downloadSelection(to: url)
+        Task { problem = await browser.downloadSelection(to: url) }
     }
 
     // MARK: - Content
@@ -367,8 +375,13 @@ struct BrowserView: View {
     }
 
     private var deleteQuestion: String {
-        deleting.count == 1
-            ? "Delete “\(deleting[0].name)” from the phone?"
+        if deleting.count == 1 {
+            return deleting[0].isFolder
+                ? "Delete “\(deleting[0].name)” and everything in it from the phone?"
+                : "Delete “\(deleting[0].name)” from the phone?"
+        }
+        return deleting.contains(where: \.isFolder)
+            ? "Delete \(deleting.count) items, including everything inside the folders, from the phone?"
             : "Delete \(deleting.count) items from the phone?"
     }
 
@@ -377,6 +390,22 @@ struct BrowserView: View {
         return pending.clashes.count == 1
             ? "The phone already has “\(pending.clashes[0])”"
             : "The phone already has \(pending.clashes.count) files with these names"
+    }
+
+    private var clashMessage: String {
+        let warning = """
+        The phone's storage treats upper and lower case as the same name, so Replace will destroy the \
+        file that is already there.
+        """
+        guard let notice = browser.pendingUpload?.notice else { return warning }
+        return warning + "\n\n" + notice
+    }
+
+    private var downloadClashQuestion: String {
+        guard let pending = browser.pendingDownload else { return "" }
+        return pending.clashes.count == 1
+            ? "“\(pending.clashes[0])” is already in that folder on this Mac"
+            : "\(pending.clashes.count) of these files are already in that folder on this Mac"
     }
 
     // MARK: - Name sheet
@@ -417,7 +446,7 @@ struct BrowserView: View {
                 }
             }
             guard !urls.isEmpty else { return }
-            browser.upload(urls)
+            if let note = browser.upload(urls) { problem = note }
         }
         return true
     }
@@ -530,11 +559,27 @@ struct BrowserView: View {
                 A copy that is already running is unaffected — locking the screen mid-transfer does not interrupt it.
                 """
             )
+        case .photoMode:
+            message(
+                icon: "photo.on.rectangle",
+                title: "A device is connected in Photo transfer mode",
+                detail: """
+                If it's your phone, pull down the notification shade, tap the USB notification, and choose **File transfer**. In Photo transfer mode a phone shows only its photo folders.
+                """
+            )
         case .busy:
             message(
                 icon: "exclamationmark.triangle.fill",
                 title: "Another program is holding the phone",
                 detail: "Quit any other phone manager (OpenMTP, Android File Transfer, and so on) and try again."
+            )
+        case .unresponsive:
+            message(
+                icon: "bolt.horizontal.circle",
+                title: "The phone is connected but not answering",
+                detail: """
+                Unplug the cable and plug it back in. Once a phone stops answering, only a replug brings it back — restarting this app is not enough.
+                """
             )
         case .ready:
             EmptyView()

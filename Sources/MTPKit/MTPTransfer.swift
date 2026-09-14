@@ -61,8 +61,11 @@ public extension MTPDevice {
                 if cancel?.isCancelled == true { throw TransferCancelled() }
                 let ask = UInt32(Swift.min(UInt64(PTPSession.sliceSize), entry.size - offset))
                 let slice = try session.read(object: entry.id, offset: offset, count: ask)
-                if slice.isEmpty { break }
-                handle.write(Data(slice))
+                // Stopping here quietly would rename a short file into place as if it were whole.
+                guard !slice.isEmpty else { throw MTPError.incomplete(entry.name) }
+                // Not `write(_: Data)`: that raises an Objective-C exception when the Mac's disk is
+                // full, which Swift cannot catch, so the app would crash instead of reporting it.
+                try handle.write(contentsOf: slice)
                 offset += UInt64(slice.count)
                 progress(offset, entry.size)
             }
@@ -114,6 +117,6 @@ public extension MTPDevice {
     }
 
     func delete(_ entry: MTPEntry) async throws {
-        try await perform { session, _ in try session.delete(object: entry.id) }
+        try await perform { session, _ in try session.deleteTree(entry.id, isFolder: entry.isFolder) }
     }
 }

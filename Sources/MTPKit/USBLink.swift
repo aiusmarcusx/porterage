@@ -35,6 +35,12 @@ final class USBLink {
     /// crawl and then wedges — see NOTES.md.
     private(set) var eventIn: UInt8 = 0
     private(set) var productName = ""
+    /// True when the claimed interface is the standard still-image class rather than Android's
+    /// vendor-specific "MTP" one. PTP cameras share that class, so the caller has to ask the device
+    /// what it speaks.
+    private(set) var isStillImageClass = false
+
+    private static let appleVendorID: UInt16 = 0x05AC
 
     init() throws {
         var ctx: OpaquePointer?
@@ -61,6 +67,9 @@ final class USBLink {
             guard let device = list[index] else { continue }
             var descriptor = libusb_device_descriptor()
             guard libusb_get_device_descriptor(device, &descriptor) == 0 else { continue }
+            // Never touch an iPhone or iPad plugged in beside the phone: its camera interface has the
+            // same class as an MTP one, and claiming it would take it away from Photos.
+            guard descriptor.idVendor != Self.appleVendorID else { continue }
             var configPointer: UnsafeMutablePointer<libusb_config_descriptor>?
             guard libusb_get_active_config_descriptor(device, &configPointer) == 0,
                   let config = configPointer else { continue }
@@ -110,6 +119,7 @@ final class USBLink {
                 bulkIn = inEndpoint
                 bulkOut = outEndpoint
                 eventIn = interruptEndpoint
+                isStillImageClass = isStillImage
                 productName = readProduct(candidate, descriptor)
                 return
             }

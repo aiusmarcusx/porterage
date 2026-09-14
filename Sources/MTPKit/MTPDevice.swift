@@ -23,6 +23,8 @@ public final class MTPDevice: @unchecked Sendable {
     private var session: PTPSession?
     private var storage: MTPStorage?
     private var watching = false
+    /// Sessions that would not open in a row, on a phone whose interface was claimed.
+    private var failedOpens = 0
     private var status: MTPStatus = .searching {
         didSet {
             guard status != oldValue else { return }
@@ -85,17 +87,29 @@ public final class MTPDevice: @unchecked Sendable {
             candidate = try USBLink()
             try candidate.connect()
         } catch USBLink.Failure.heldByAnother {
+            failedOpens = 0
             return .busy
         } catch {
+            failedOpens = 0
             return .noDevice
         }
 
         let candidateSession = PTPSession(link: candidate)
         do {
             try candidateSession.open()
+            failedOpens = 0
         } catch {
             candidate.close()
-            return .noDevice
+            // Its MTP interface is claimed yet no session opens, even after the reset inside open().
+            // Once is not enough to say so: a phone plugged in a moment ago may still be starting.
+            failedOpens += 1
+            return failedOpens >= 2 ? .unresponsive : .searching
+        }
+
+        if candidate.isStillImageClass, candidateSession.advertisesMTP() == false {
+            candidateSession.close()
+            candidate.close()
+            return .photoMode
         }
 
         // A locked phone opens the session happily and then hands back an empty storage list.

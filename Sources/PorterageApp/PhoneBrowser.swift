@@ -24,6 +24,16 @@ final class PhoneBrowser: ObservableObject {
         let urls: [URL]
         let clashes: [String]
         let folder: UInt32
+        /// Files from the same drop that were left out, shown alongside the question.
+        let notice: String?
+    }
+
+    typealias DownloadItem = (entry: MTPEntry, destination: URL)
+
+    struct PendingDownload {
+        let work: [DownloadItem]
+        /// Names already present on this Mac where the copies would land.
+        let clashes: [String]
     }
 
     @Published private(set) var status: MTPStatus = .searching
@@ -39,6 +49,8 @@ final class PhoneBrowser: ObservableObject {
     @Published var sortAscending = true
     /// Set when an upload is waiting on the user to say what to do about duplicate names.
     @Published var pendingUpload: PendingUpload?
+    /// Set when a copy to the Mac is waiting on the user to say what to do about files already there.
+    @Published var pendingDownload: PendingDownload?
 
     let transfers: TransferQueue
     let thumbnails: ThumbnailStore
@@ -224,45 +236,145 @@ final class PhoneBrowser: ObservableObject {
     // MARK: - Copying
 
     /// Queues the selection for copying into `folder` on the Mac, walking sub-folders as it goes.
-    func downloadSelection(to folder: URL) {
+    /// Stops to ask when files of those names are already there. Returns what went wrong, if anything.
+    func downloadSelection(to folder: URL) async -> String? {
         let picked = selectedEntries
-        guard !picked.isEmpty else { return }
-        Task {
-            var work: [(entry: MTPEntry, destination: URL)] = []
+        guard !picked.isEmpty else { return nil }
+        var work: [DownloadItem] = []
+        do {
             for entry in picked {
-                await collect(entry, into: folder, appendingTo: &work)
+                try await collect(entry, into: folder, appendingTo: &work)
             }
+        } catch {
+            // Copying the folders that could be read would end in "copied" over an incomplete set,
+            // and the user would take the Mac's copy for the whole thing.
+            return "\(error.localizedDescription) Nothing was copied."
+        }
+        // Two phone names can land on one Mac name — the Mac ignores case, and the phone keeps NFC and
+        // NFD spellings apart — so later ones take a free name instead of overwriting the first.
+        work = withFreeNames(work) { _ in false }
+        let clashes = work.filter { FileManager.default.fileExists(atPath: $0.destination.path) }
+        if clashes.isEmpty {
             transfers.download(work)
+        } else {
+            pendingDownload = PendingDownload(work: work, clashes: clashes.map(\.destination.lastPathComponent))
+        }
+        return nil
+    }
+
+    func resolvePendingDownload(_ choice: ClashChoice) {
+        guard let pending = pendingDownload else { return }
+        pendingDownload = nil
+        let fm = FileManager.default
+        switch choice {
+        case .skip:
+            let missing = pending.work.filter { !fm.fileExists(atPath: $0.destination.path) }
+            if !missing.isEmpty { transfers.download(missing) }
+        case .replace:
+            // Replace means files. A folder on the Mac with the same name is never deleted to make
+            // room; that copy lands beside it under a free name.
+            transfers.download(withFreeNames(pending.work) { Self.isFolder(at: $0) })
+        case .keepBoth:
+            transfers.download(withFreeNames(pending.work) { fm.fileExists(atPath: $0.path) })
         }
     }
 
+    /// Gives each item a destination no earlier item in the batch has taken, as "name (2).ext" — the
+    /// same pattern Keep Both uses on the phone. `rename` moves an item off its name even when unused.
+    private func withFreeNames(_ work: [DownloadItem], renaming rename: (URL) -> Bool) -> [DownloadItem] {
+        let fm = FileManager.default
+        var used = Set<String>()
+        return work.map { item in
+            var destination = item.destination
+            if used.contains(Self.pathKey(destination)) || rename(destination) {
+                let folder = destination.deletingLastPathComponent()
+                let base = (destination.lastPathComponent as NSString).deletingPathExtension
+                let ext = destination.pathExtension
+                var counter = 2
+                repeat {
+                    let candidate = ext.isEmpty ? "\(base) (\(counter))" : "\(base) (\(counter)).\(ext)"
+                    destination = folder.appendingPathComponent(candidate)
+                    counter += 1
+                } while used.contains(Self.pathKey(destination)) || fm.fileExists(atPath: destination.path)
+            }
+            used.insert(Self.pathKey(destination))
+            return (item.entry, destination)
+        }
+    }
+
+    private static func pathKey(_ url: URL) -> String {
+        url.standardizedFileURL.path.precomposedStringWithCanonicalMapping.lowercased()
+    }
+
+    private static func isFolder(at url: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
+    }
+
+    private struct UnreadableFolder: LocalizedError {
+        let name: String
+        let reason: Error
+        var errorDescription: String? { "Couldn't read “\(name)” on the phone: \(reason.localizedDescription)" }
+    }
+
     /// Depth-first walk that turns a selection into a flat list of files plus where each one lands.
-    private func collect(_ entry: MTPEntry, into folder: URL, appendingTo work: inout [(entry: MTPEntry, destination: URL)]) async {
+    private func collect(_ entry: MTPEntry, into folder: URL, appendingTo work: inout [DownloadItem]) async throws {
         guard entry.isFolder else {
             work.append((entry, folder.appendingPathComponent(entry.name)))
             return
         }
         let sub = folder.appendingPathComponent(entry.name)
-        guard let children = try? await device.children(of: entry.id) else { return }
+        let children: [MTPEntry]
+        do {
+            children = try await device.children(of: entry.id)
+        } catch {
+            throw UnreadableFolder(name: entry.name, reason: error)
+        }
         for child in children where !child.isHiddenByPhone {
-            await collect(child, into: sub, appendingTo: &work)
+            try await collect(child, into: sub, appendingTo: &work)
         }
     }
 
-    /// Starts an upload, pausing for an answer when names collide.
-    func upload(_ urls: [URL]) {
-        let files = urls.filter { url in
+    /// Starts an upload, pausing for an answer when names collide with files on the phone. Returns a
+    /// note about anything left out, for the caller to show when no question is pending.
+    func upload(_ urls: [URL]) -> String? {
+        var files: [URL] = []
+        var leftOut: [String] = []
+        for url in urls {
             var isDirectory: ObjCBool = false
             FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
-            return !isDirectory.boolValue
+            if isDirectory.boolValue {
+                leftOut.append("“\(url.lastPathComponent)” is a folder. Folders can't be copied onto the phone yet; open it and drop the files inside.")
+            } else if let problem = MTPName.problem(with: url.lastPathComponent, among: []) {
+                // Only the phone's own naming rules here. A clash with a file already on the phone is
+                // not refused; it gets the Keep Both / Replace / Skip question below.
+                leftOut.append("“\(url.lastPathComponent)”: \(problem.localizedDescription)")
+            } else {
+                files.append(url)
+            }
         }
-        guard !files.isEmpty else { return }
+
+        // The clash check compares against the phone, not within the drop. Two dropped files called
+        // "Report.txt" and "report.txt" would land on one file, the second silently replacing the first.
+        let collisions = Dictionary(grouping: files) { key(of: $0.lastPathComponent) }
+            .values.filter { $0.count > 1 }.flatMap { $0 }.map(\.lastPathComponent)
+        if !collisions.isEmpty {
+            return """
+            \(collisions.map { "“\($0)”" }.joined(separator: ", ")) would land on the phone under one name, \
+            because it treats upper and lower case as the same. Rename one and drop them again. \
+            Nothing was copied.
+            """
+        }
+
+        let notice = leftOut.isEmpty ? nil : "Not copied:\n" + leftOut.joined(separator: "\n")
+        guard !files.isEmpty else { return notice }
         let clashes = clashingNames(for: files)
         if clashes.isEmpty {
             transfers.upload(files, into: currentFolder)
-        } else {
-            pendingUpload = PendingUpload(urls: files, clashes: clashes, folder: currentFolder)
+            return notice
         }
+        pendingUpload = PendingUpload(urls: files, clashes: clashes, folder: currentFolder, notice: notice)
+        return nil
     }
 
     func resolvePendingUpload(_ choice: ClashChoice) {

@@ -68,7 +68,7 @@ public final class MTPProbe {
             let ask = UInt32(Swift.min(UInt64(PTPSession.sliceSize), size - offset))
             let slice = try session.read(object: handle, offset: offset, count: ask)
             if slice.isEmpty { break }
-            file.write(Data(slice))
+            try file.write(contentsOf: slice)
             offset += UInt64(slice.count)
         }
     }
@@ -86,7 +86,8 @@ public final class MTPProbe {
         return MTPDevice.embeddedThumbnail(in: Data(header))
     }
 
-    /// Empties a folder before removing it; the phone refuses to delete one that still has contents.
+    /// Empties a folder before removing it, so cleanup works whether or not the phone will delete a
+    /// folder that still has contents in one command.
     public func deleteRecursively(_ entry: MTPEntry) throws {
         if entry.isFolder {
             for child in try session.entries(in: entry.id) { try deleteRecursively(child) }

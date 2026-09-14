@@ -29,6 +29,19 @@ extension PTPSession {
         try require(.deleteObject, [handle, 0])
     }
 
+    /// Deletes a file, or a folder and everything in it. A folder goes in one command when the phone
+    /// allows that; when it refuses, the contents are removed first, deepest first. Which phones need
+    /// the second route has not been measured.
+    func deleteTree(_ handle: UInt32, isFolder: Bool) throws {
+        let reply = try send(.deleteObject, [handle, 0])
+        if reply.isOK { return }
+        guard isFolder else { throw PTPError(operation: .deleteObject, code: reply.code) }
+        for child in try entries(in: handle) {
+            try deleteTree(child.id, isFolder: child.isFolder)
+        }
+        try delete(object: handle)
+    }
+
     // MARK: - Writing
 
     /// Announces a file and gets back the handle to write into. Returns `(handle, parent)`.

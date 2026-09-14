@@ -33,6 +33,19 @@ extension PTPSession {
         return result
     }
 
+    /// Whether the device says it speaks MTP rather than plain PTP, or nil when it will not say.
+    ///
+    /// Android's MTP server (AOSP `MtpServer::doGetDeviceInfo`) sends vendor extension 6 with
+    /// "microsoft.com: 1.0; android.com: 1.0;" in File transfer mode, and neither in "Transfer
+    /// photos" mode. Taken from that source; not yet measured on the test phone.
+    func advertisesMTP() -> Bool? {
+        guard let reply = try? require(.getDeviceInfo), reply.data.count >= 9 else { return nil }
+        // standardVersion(2) vendorExtensionID(4) vendorExtensionVersion(2) then the description.
+        var offset = 8
+        let description = reply.data.mtpString(at: &offset)
+        return reply.data.uint32(at: 2) == 6 || description.contains("microsoft.com")
+    }
+
     // MARK: - Listing
 
     /// Lists one folder. `folder` is `PTPSession.rootFolder` for the top level.
@@ -45,7 +58,9 @@ extension PTPSession {
         for (property, sink) in [
             (PTPProperty.filename, 0), (.objectSize, 1), (.dateModified, 2), (.objectFormat, 3),
         ] as [(PTPProperty, Int)] {
-            let reply = try send(.getObjectPropList, [folder, 0, property.rawValue, 0, 1])
+            // The first listing after plugging in waits while the phone indexes everything on it:
+            // 17 s for ~34,000 objects on the test phone, so a fuller phone would pass the usual 30 s.
+            let reply = try send(.getObjectPropList, [folder, 0, property.rawValue, 0, 1], timeout: 120_000)
             guard reply.isOK else {
                 // Some phones only answer proplist for a real folder handle; fall back rather than
                 // showing the user an empty folder.
