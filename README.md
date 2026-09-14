@@ -4,7 +4,7 @@ Move files between an Android phone and a Mac, over the cable, without the parts
 wrong.
 
 Plug the phone in and Porterage shows what is on it — as a list, or as a grid of real photo
-thumbnails. Drag files out to the Finder, drop files in, and copy whole folders in either direction.
+thumbnails. Drag files out to the Finder, drop files in, and copy whole folders to the Mac.
 
 **macOS 14 or later. Apple silicon and Intel. No Wi-Fi, no account, no cloud.**
 
@@ -27,13 +27,15 @@ MTP directly to get at the faster command.
 **Two files can differ only in case — and destroy each other.** The phone's storage ignores case
 while the protocol does not, so `Report.txt` and `report.txt` both appear in a listing while sharing
 one file underneath. Writing the second silently overwrites the first. Porterage compares names the
-way the phone's storage actually does, and refuses.
+way the phone's storage actually does — against what is already there, and across the files you drop
+together — and stops before anything is written.
 
 **Locking the screen does not interrupt a copy.** It does block *starting* one. Porterage says which
 of those is happening instead of reporting "not connected" for both.
 
-**An interrupted copy can resume exactly where it stopped**, in both directions, verified byte for
-byte with SHA-256.
+**An interrupted copy to the Mac picks up where it stopped.** It is written as `.part` until the last
+byte arrives; copy it again and only the missing bytes are fetched. The phone can resume uploads
+too — measured byte for byte with SHA-256 — but the app does not do that yet.
 
 The full set of findings, with the numbers, is in [NOTES.md](NOTES.md).
 

@@ -5,6 +5,12 @@ M1, macOS 26.5.1**. None of it came from documentation, and several findings con
 
 These are not style preferences. Ignore any one of them and the app breaks in the way described.
 
+**Which client took the measurements.** Everything dated 11–12 Sep came from a throwaway prototype
+built on libmtp, before this app implemented MTP itself on 13 Sep. Those findings describe the phone
+and the protocol, which do not change with the client. Timings for this app's own engine exist only
+for folder listing (0.56 s, and ~17 s for the first listing) and the `mtpcheck selftest` round trip;
+every other figure still has to be re-measured on it before it is quoted as the app's.
+
 ## Three rules that are not optional
 
 ### 1. One session, held open for the life of the connection
@@ -82,10 +88,13 @@ This is where other MTP clients do badly: every failure collapses into one unhel
 | Situation | Signature | What to tell the user |
 |---|---|---|
 | Screen locked | Session opens, `GetStorageIDs` comes back empty | "Unlock the phone" |
-| Set to PTP / photo transfer | Interface class 6 instead of 255, PID `FF10` instead of `FF40`; no MTP interface found | "Switch to File transfer" |
+| Set to PTP / photo transfer | Interface class 6 instead of 255, PID `FF10` instead of `FF40`. AOSP's `MtpServer` also leaves vendor extension 6 (`microsoft.com`) out of `GetDeviceInfo`, which is what the app checks — taken from the source, not yet measured | "Switch to File transfer" |
 | Charging only | No MTP interface on the bus | "Pull down the notification shade and choose File transfer" |
 | Another app holds it | `libusb_claim_interface` returns busy | "Quit OpenMTP / Android File Transfer" |
-| MTP wedged (see rule 2) | Opening a session fails even after a USB reset | "Unplug and replug the cable" |
+| MTP wedged (see rule 2) | Opening a session fails even after a USB reset, twice in a row | "Unplug and replug the cable" |
+
+Apple devices (vendor `05AC`) are skipped outright: an iPhone's camera interface has the same class
+as an MTP one, and claiming it would take the phone away from Photos.
 
 After a replug, this phone defaults back to **no data transfer** and asks again.
 
@@ -113,6 +122,10 @@ Works in both directions, verified byte for byte with SHA-256:
   `BeginEditObject` + `SendPartialObject` restart at the real boundary rather than a guess.
   Measured 19.4 MiB/s — faster than a plain push.
 - **Download:** stitched `GetPartialObject64` slices run at 28.8 MiB/s, no slower than one large read.
+
+Both were measured on the prototype. **The app resumes downloads only:** a copy to the Mac is
+written as `<name>.part`, and copying the same file into the same folder again continues it. An
+upload that fails is deleted from the phone; `PTPSession.resumeSend` exists, but nothing calls it yet.
 
 Files over 4 GiB work: 4,402,341,478 bytes transferred, size reported correctly, and a read past the
 4 GiB mark returned the right bytes.
@@ -220,4 +233,11 @@ that, not the old shortcut.
 ## Still outstanding
 
 - [ ] Test closing the MacBook lid mid-transfer.
-- [ ] Test the SD card path (needs a phone with a card).
+- [ ] Test the SD card path (needs a phone with a card). The app reads only the first storage.
+- [ ] Re-measure on this app's engine: small-file batches, speeds both ways, a file over 4 GiB,
+  resuming a download, stopping an upload part-way, locking the phone and pulling the cable mid-copy.
+- [ ] Use the window end to end on a phone: copy both ways, both name-clash questions, delete a
+  folder with files in it, drag a file to the Finder, Quick Look, selecting rows in the list.
+- [ ] Confirm Photo transfer mode is reported as such, and whether the phone deletes a non-empty
+  folder in one command.
+- [ ] Copying a folder from the Mac onto the phone is not implemented; the window says so.
