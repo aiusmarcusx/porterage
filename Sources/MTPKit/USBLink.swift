@@ -39,6 +39,8 @@ final class USBLink {
     /// vendor-specific "MTP" one. PTP cameras share that class, so the caller has to ask the device
     /// what it speaks.
     private(set) var isStillImageClass = false
+    /// Bulk-out packet size, 512 at high speed. See `PTPSession.finishDataPhase`.
+    private(set) var packetSize = 512
 
     private static let appleVendorID: UInt16 = 0x05AC
 
@@ -83,6 +85,7 @@ final class USBLink {
                 guard isStillImage || isVendorMTP else { continue }
 
                 var inEndpoint: UInt8 = 0, outEndpoint: UInt8 = 0, interruptEndpoint: UInt8 = 0
+                var outPacket = 512
                 for endpointIndex in 0 ..< Int(descriptor.bNumEndpoints) {
                     guard let endpoints = descriptor.endpoint else { continue }
                     let endpoint = endpoints[endpointIndex]
@@ -90,7 +93,10 @@ final class USBLink {
                     let isInput = endpoint.bEndpointAddress & 0x80 != 0
                     if kind == UInt8(LIBUSB_TRANSFER_TYPE_BULK.rawValue) {
                         if isInput { inEndpoint = endpoint.bEndpointAddress }
-                        else { outEndpoint = endpoint.bEndpointAddress }
+                        else {
+                            outEndpoint = endpoint.bEndpointAddress
+                            outPacket = Int(endpoint.wMaxPacketSize & 0x7FF)
+                        }
                     } else if kind == UInt8(LIBUSB_TRANSFER_TYPE_INTERRUPT.rawValue), isInput {
                         interruptEndpoint = endpoint.bEndpointAddress
                     }
@@ -120,6 +126,7 @@ final class USBLink {
                 bulkOut = outEndpoint
                 eventIn = interruptEndpoint
                 isStillImageClass = isStillImage
+                packetSize = max(outPacket, 1)
                 productName = readProduct(candidate, descriptor)
                 return
             }
@@ -152,6 +159,15 @@ final class USBLink {
         guard rc == 0 else { throw Failure.transfer("Send", rc) }
     }
 
+    /// A zero-length packet: the only way to end a transfer whose last packet came out full.
+    func writeZeroLengthPacket(timeout: UInt32 = 10_000) throws {
+        guard let handle else { throw Failure.notFound }
+        var byte: UInt8 = 0
+        var sent: Int32 = 0
+        let rc = libusb_bulk_transfer(handle, bulkOut, &byte, 0, &sent, timeout)
+        guard rc == 0 else { throw Failure.transfer("Send", rc) }
+    }
+
     /// Returns the number of bytes read into `buffer`.
     func read(into buffer: UnsafeMutableBufferPointer<UInt8>, timeout: UInt32 = 30_000) throws -> Int {
         guard let handle, let base = buffer.baseAddress else { throw Failure.notFound }
@@ -161,8 +177,26 @@ final class USBLink {
         return Int(received)
     }
 
+    /// MTP's class request for abandoning a transaction part-way through its data phase.
+    func cancel(transaction: UInt32) throws {
+        guard let handle else { throw Failure.notFound }
+        var request: [UInt8] = [0x01, 0x40]  // cancellation code 0x4001
+        request.append(uint32: transaction)
+        let rc = libusb_control_transfer(handle, 0x21, 0x64, 0, UInt16(interfaceNumber), &request, UInt16(request.count), 5_000)
+        guard rc >= 0 else { throw Failure.transfer("Cancel", rc) }
+    }
+
+    /// MTP's Get Device Status class request: the phone's response code, 0x2001 once it is ready.
+    func deviceStatus() -> UInt16? {
+        guard let handle else { return nil }
+        var reply = [UInt8](repeating: 0, count: 64)
+        let rc = libusb_control_transfer(handle, 0xA1, 0x67, 0, UInt16(interfaceNumber), &reply, UInt16(reply.count), 2_000)
+        guard rc >= 4 else { return nil }
+        return UInt16(reply[2]) | UInt16(reply[3]) << 8
+    }
+
     /// Drains one pending event, if any. A timeout means there was nothing waiting, which is normal.
-    func readEvent(into buffer: UnsafeMutableBufferPointer<UInt8>, timeout: UInt32 = 50) -> Int {
+    func readEvent(into buffer: UnsafeMutableBufferPointer<UInt8>, timeout: UInt32 = 10) -> Int {
         guard let handle, eventIn != 0, let base = buffer.baseAddress else { return 0 }
         var received: Int32 = 0
         let rc = libusb_interrupt_transfer(handle, eventIn, base, Int32(buffer.count), &received, timeout)

@@ -98,20 +98,36 @@ extension PTPSession {
         header.append(uint16: PTPOperation.sendObject.rawValue)
         header.append(uint32: id)
         try writeCommand(.sendObject, params: [], transaction: id)
-        try header.withUnsafeBytes { try rawWrite($0) }
 
+        // The phone sees the whole data phase as one USB transfer, and any packet that is not full ends
+        // it. So every write but the last has to be a whole number of packets: the header shares the
+        // first write, which is topped up to exactly one slice, and later writes are whole slices.
+        // Measured on the phone when either rule was broken — a header written alone left files of
+        // exactly 512, 1024 or 4096 bytes hanging for 60 s; a first write of header plus a full slice
+        // (12 bytes over) broke an 8 MiB + 500 byte file, and would cut any file over 4 GiB short.
         var sent: UInt64 = 0
-        while sent < size {
-            if isCancelled() { throw TransferCancelled() }
-            let want = Int(Swift.min(UInt64(Self.sliceSize), size - sent))
-            let slice = file.readData(ofLength: want)
-            if slice.isEmpty { break }
-            try slice.withUnsafeBytes { try rawWrite($0, timeout: 60_000) }
-            sent += UInt64(slice.count)
+        var pending: Data? = Data(header)
+        repeat {
+            if isCancelled() {
+                abandon(transaction: id)
+                throw TransferCancelled()
+            }
+            let room = UInt64(Self.sliceSize) - UInt64(pending?.count ?? 0)
+            let want = Int(Swift.min(room, size - sent))
+            var chunk = pending ?? Data()
+            pending = nil
+            if want > 0 {
+                let slice = file.readData(ofLength: want)
+                if slice.isEmpty { break }
+                chunk.append(slice)
+                sent += UInt64(slice.count)
+            }
+            try chunk.withUnsafeBytes { try rawWrite($0, timeout: 60_000) }
             onProgress(sent)
             drainEvents()
-        }
-        let reply = try awaitResponse(.sendObject, timeout: 60_000)
+        } while sent < size
+        try finishDataPhase(totalBytes: 12 + sent)
+        let reply = try awaitResponse(.sendObject, transaction: id, timeout: 60_000)
         guard reply.isOK else { throw PTPError(operation: .sendObject, code: reply.code) }
     }
 

@@ -566,7 +566,7 @@ struct BrowserView: View {
                 detail: """
                 Android will not let a computer read its storage while the screen is locked. Unlock it and this window fills in by itself.
 
-                A copy that is already running is unaffected — locking the screen mid-transfer does not interrupt it.
+                Keep it unlocked while a copy runs: locking it can stop the copy part-way. A copy to the Mac continues from where it stopped when you copy it again.
                 """
             )
         case .photoMode:

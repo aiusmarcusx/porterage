@@ -30,8 +30,9 @@ one file underneath. Writing the second silently overwrites the first. Porterage
 way the phone's storage actually does — against what is already there, and across the files you drop
 together — and stops before anything is written.
 
-**Locking the screen does not interrupt a copy.** It does block *starting* one. Porterage says which
-of those is happening instead of reporting "not connected" for both.
+**A locked phone looks like a missing one.** It still answers, but hands over an empty list of
+storage, which other tools report as "not connected". Porterage says the phone is locked, and
+fills the window in by itself once it is unlocked.
 
 **An interrupted copy to the Mac picks up where it stopped.** It is written as `.part` until the last
 byte arrives; copy it again and only the missing bytes are fetched. The phone can resume uploads

@@ -97,9 +97,10 @@ final class PTPSession {
             container.append(uint32: id)
             container.append(contentsOf: payload)
             try container.withUnsafeBytes { try link.write($0, timeout: timeout) }
+            try finishDataPhase(totalBytes: UInt64(container.count))
         }
 
-        return try awaitResponse(operation, timeout: timeout)
+        return try awaitResponse(operation, transaction: id, timeout: timeout)
     }
 
     /// Claims the next transaction id. `OpenSession` is the one command that must carry zero.
@@ -126,15 +127,33 @@ final class PTPSession {
         try link.write(bytes, timeout: timeout)
     }
 
-    /// Reads whatever the phone sends back: an optional data container, then the response container.
-    func awaitResponse(_ operation: PTPOperation, timeout: UInt32) throws -> PTPReply {
+    /// USB ends a transfer at the first packet that is not full, so a data phase whose length is an
+    /// exact multiple of the packet size has to be closed with an empty packet. Without it the phone
+    /// keeps waiting: measured, files of exactly 512, 1024 and 4096 bytes hung for 60 s while 511 and
+    /// 513 went straight through.
+    func finishDataPhase(totalBytes: UInt64) throws {
+        if totalBytes % UInt64(link.packetSize) == 0 { try link.writeZeroLengthPacket() }
+    }
+
+    /// Reads whatever the phone sends back for `transaction`: an optional data container, then the
+    /// response container.
+    ///
+    /// Containers carrying another transaction id are thrown away. They are the late answer to a
+    /// command that already timed out, and taking one as this command's answer — as happened before
+    /// this check — silently skips a delete, or hands one folder's listing to the next request.
+    func awaitResponse(_ operation: PTPOperation, transaction: UInt32, timeout: UInt32) throws -> PTPReply {
         var data = [UInt8]()
         var expected = 0
         var collecting = false
+        var discarding = 0
 
         while true {
             let count = try buffer.withUnsafeMutableBufferPointer { try link.read(into: $0, timeout: timeout) }
             if count == 0 { continue }
+            if discarding > 0 {
+                discarding -= Swift.min(count, discarding)
+                continue
+            }
 
             if collecting, data.count < expected {
                 let take = min(count, expected - data.count)
@@ -145,6 +164,10 @@ final class PTPSession {
 
             let length = Int(buffer.uint32(at: 0))
             let type = buffer.uint16(at: 4)
+            if buffer.uint32(at: 8) != transaction {
+                if type == 2 { discarding = Swift.max(length - count, 0) }
+                continue
+            }
             if type == 2 {
                 expected = max(length - 12, 0)
                 data.reserveCapacity(expected)
@@ -196,6 +219,18 @@ final class PTPSession {
 
     func close() {
         _ = try? send(.closeSession, timeout: 2_000)
+    }
+
+    /// Abandons a transaction whose data phase is still going out. Only stopping the writes leaves the
+    /// phone waiting for the rest: measured, a Stop at 25 % of a 512 MiB upload took 30 s to return and
+    /// left a 136 MiB file on the phone that looked like any other.
+    func abandon(transaction: UInt32) {
+        guard (try? link.cancel(transaction: transaction)) != nil else { return }
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline, link.deviceStatus() != PTPResponseCode.ok.rawValue {
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        drainEvents()
     }
 
     /// Empties the phone's event queue. Must be called regularly during writes.
