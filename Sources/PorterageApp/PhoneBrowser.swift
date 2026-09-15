@@ -17,14 +17,9 @@ final class PhoneBrowser: ObservableObject {
         }
     }
 
-    /// What to do when a file being copied up has a name the phone already holds.
-    enum ClashChoice { case skip, replace, keepBoth }
-
     struct PendingUpload {
-        let urls: [URL]
-        let clashes: [String]
-        let folder: UInt32
-        /// Files from the same drop that were left out, shown alongside the question.
+        var plan: UploadPlan
+        /// Items from the same drop that were left out, shown alongside the question.
         let notice: String?
     }
 
@@ -39,6 +34,8 @@ final class PhoneBrowser: ObservableObject {
     @Published private(set) var status: MTPStatus = .searching
     @Published private(set) var entries: [MTPEntry] = []
     @Published private(set) var isLoading = false
+    /// Reading both sides and creating folders before a copy is queued, which can take a moment.
+    @Published private(set) var isPreparingCopy = false
     @Published private(set) var errorText: String?
     /// Breadcrumb from the storage root down to the folder on screen.
     @Published private(set) var path: [MTPEntry] = []
@@ -240,6 +237,8 @@ final class PhoneBrowser: ObservableObject {
     func downloadSelection(to folder: URL) async -> String? {
         let picked = selectedEntries
         guard !picked.isEmpty else { return nil }
+        isPreparingCopy = true
+        defer { isPreparingCopy = false }
         var work: [DownloadItem] = []
         do {
             for entry in picked {
@@ -335,97 +334,92 @@ final class PhoneBrowser: ObservableObject {
         }
     }
 
-    /// Starts an upload, pausing for an answer when names collide with files on the phone. Returns a
-    /// note about anything left out, for the caller to show when no question is pending.
-    func upload(_ urls: [URL]) -> String? {
-        var files: [URL] = []
-        var leftOut: [String] = []
-        for url in urls {
-            var isDirectory: ObjCBool = false
-            FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
-            if isDirectory.boolValue {
-                leftOut.append("“\(url.lastPathComponent)” is a folder. Folders can't be copied onto the phone yet; open it and drop the files inside.")
-            } else if let problem = MTPName.problem(with: url.lastPathComponent, among: []) {
-                // Only the phone's own naming rules here. A clash with a file already on the phone is
-                // not refused; it gets the Keep Both / Replace / Skip question below.
-                leftOut.append("“\(url.lastPathComponent)”: \(problem.localizedDescription)")
-            } else {
-                files.append(url)
+    /// Plans a drop of files and folders into the folder on screen, then starts it — or pauses for an
+    /// answer when names are already taken. Returns what to tell the user, if anything.
+    func upload(_ urls: [URL]) async -> String? {
+        let folder = currentFolder
+        isPreparingCopy = true
+        defer { isPreparingCopy = false }
+
+        let plan: UploadPlan
+        do {
+            // Read fresh rather than trusting `entries`: a drop straight after opening a folder lands
+            // before its listing does, and an empty list would wave every clash through.
+            let contents = try await device.children(of: folder)
+            plan = try await UploadPlan.make(dropping: urls, into: folder, holding: contents) { [device] handle in
+                try await device.children(of: handle)
             }
+        } catch {
+            return "\(error.localizedDescription) Nothing was copied."
         }
 
-        // The clash check compares against the phone, not within the drop. Two dropped files called
-        // "Report.txt" and "report.txt" would land on one file, the second silently replacing the first.
-        let collisions = Dictionary(grouping: files) { key(of: $0.lastPathComponent) }
-            .values.filter { $0.count > 1 }.flatMap { $0 }.map(\.lastPathComponent)
-        if !collisions.isEmpty {
+        // The phone ignores case, so "Report.txt" and "report.txt" dropped together would land on one
+        // file, the second silently replacing the first.
+        if !plan.collisions.isEmpty {
             return """
-            \(collisions.map { "“\($0)”" }.joined(separator: ", ")) would land on the phone under one name, \
-            because it treats upper and lower case as the same. Rename one and drop them again. \
+            \(plan.collisions.map { "“\($0)”" }.joined(separator: ", ")) would land on the phone under one \
+            name, because it treats upper and lower case as the same. Rename one and drop them again. \
             Nothing was copied.
             """
         }
 
-        let notice = leftOut.isEmpty ? nil : "Not copied:\n" + leftOut.joined(separator: "\n")
-        guard !files.isEmpty else { return notice }
-        let clashes = clashingNames(for: files)
-        if clashes.isEmpty {
-            transfers.upload(files, into: currentFolder)
-            return notice
+        let notice = plan.leftOut.isEmpty ? nil : "Not copied:\n" + plan.leftOut.joined(separator: "\n")
+        guard !plan.isEmpty else { return notice }
+        if plan.clashes.isEmpty {
+            return await start(plan, deleting: [], notice: notice)
         }
-        pendingUpload = PendingUpload(urls: files, clashes: clashes, folder: currentFolder, notice: notice)
+        pendingUpload = PendingUpload(plan: plan, notice: notice)
         return nil
     }
 
-    func resolvePendingUpload(_ choice: ClashChoice) {
-        guard let pending = pendingUpload else { return }
+    func resolvePendingUpload(_ choice: ClashChoice) async -> String? {
+        guard var pending = pendingUpload else { return nil }
         pendingUpload = nil
-        let taken = Set(entries.map(\.comparisonKey))
+        isPreparingCopy = true
+        defer { isPreparingCopy = false }
+        let deletions = pending.plan.resolve(choice)
+        return await start(pending.plan, deleting: deletions, notice: pending.notice)
+    }
 
-        switch choice {
-        case .skip:
-            let keep = pending.urls.filter { !taken.contains(key(of: $0.lastPathComponent)) }
-            if !keep.isEmpty { transfers.upload(keep, into: pending.folder) }
-
-        case .replace:
-            Task {
-                for url in pending.urls {
-                    let name = key(of: url.lastPathComponent)
-                    if let existing = entries.first(where: { $0.comparisonKey == name }) {
-                        try? await device.delete(existing)
-                    }
-                }
-                entries = (try? await device.children(of: pending.folder)) ?? entries
-                transfers.upload(pending.urls, into: pending.folder)
+    /// Checks space for the whole drop, clears what Replace replaces, creates the new folders parents
+    /// first, then queues the files.
+    private func start(_ plan: UploadPlan, deleting deletions: [MTPEntry], notice: String?) async -> String? {
+        let files = plan.files.filter { !$0.skipped }
+        // The per-file check in `MTPDevice.upload` would let a big drop fill the phone and fail
+        // part-way; this refuses it before anything is written.
+        let needed = files.reduce(0) { $0 + $1.size }
+        if let free = await device.currentFreeSpace() {
+            let available = free + deletions.reduce(0) { $0 + $1.size }
+            if needed > available {
+                return MTPError.notEnoughSpace(needed: needed, free: available).localizedDescription + " Nothing was copied."
             }
-
-        case .keepBoth:
-            var used = taken
-            var renamed: [(URL, String)] = []
-            for url in pending.urls {
-                var candidate = url.lastPathComponent
-                if used.contains(key(of: candidate)) {
-                    let base = (candidate as NSString).deletingPathExtension
-                    let ext = (candidate as NSString).pathExtension
-                    var counter = 2
-                    repeat {
-                        candidate = ext.isEmpty ? "\(base) (\(counter))" : "\(base) (\(counter)).\(ext)"
-                        counter += 1
-                    } while used.contains(key(of: candidate))
-                }
-                used.insert(key(of: candidate))
-                renamed.append((url, candidate))
-            }
-            transfers.upload(renamed, into: pending.folder)
         }
-    }
 
-    private func key(of name: String) -> String {
-        name.precomposedStringWithCanonicalMapping.lowercased()
-    }
+        for entry in deletions {
+            try? await device.delete(entry)
+        }
 
-    private func clashingNames(for urls: [URL]) -> [String] {
-        let taken = Set(entries.map(\.comparisonKey))
-        return urls.map(\.lastPathComponent).filter { taken.contains(key(of: $0)) }
+        var created: [Int: UInt32] = [:]
+        func handle(for parent: UploadPlan.Parent) -> UInt32? {
+            switch parent {
+            case let .existing(handle): return handle
+            case let .new(index): return created[index]
+            }
+        }
+        for (index, folder) in plan.folders.enumerated() where !folder.skipped {
+            guard let parent = handle(for: folder.parent) else { continue }
+            do {
+                created[index] = try await device.createFolder(named: folder.name, in: parent)
+            } catch {
+                if !created.isEmpty { reload() }
+                return "Couldn't create “\(folder.path)” on the phone: \(error.localizedDescription) No files were copied."
+            }
+        }
+        if !created.isEmpty { reload() }
+
+        transfers.upload(files.compactMap { file in
+            handle(for: file.parent).map { (url: file.url, name: file.name, folder: $0) }
+        })
+        return notice
     }
 }

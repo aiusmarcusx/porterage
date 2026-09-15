@@ -240,4 +240,6 @@ that, not the old shortcut.
   folder with files in it, drag a file to the Finder, Quick Look, selecting rows in the list.
 - [ ] Confirm Photo transfer mode is reported as such, and whether the phone deletes a non-empty
   folder in one command.
-- [ ] Copying a folder from the Mac onto the phone is not implemented; the window says so.
+- [ ] Copy a folder tree onto the phone: into an empty folder, merged into a folder of the same
+  name with a clashing file inside it, and a folder meeting a file of the same name. Check the
+  whole-drop space check refuses a drop larger than the free space before anything is written.

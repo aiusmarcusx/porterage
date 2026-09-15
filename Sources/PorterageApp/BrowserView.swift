@@ -57,9 +57,9 @@ struct BrowserView: View {
             Text("Deleting on the phone is permanent. There is no trash to recover from.")
         }
         .confirmationDialog(clashQuestion, isPresented: .constant(browser.pendingUpload != nil)) {
-            Button("Keep Both") { browser.resolvePendingUpload(.keepBoth) }
-            Button("Replace", role: .destructive) { browser.resolvePendingUpload(.replace) }
-            Button("Skip Duplicates") { browser.resolvePendingUpload(.skip) }
+            Button("Keep Both") { answerUploadClash(.keepBoth) }
+            Button("Replace", role: .destructive) { answerUploadClash(.replace) }
+            Button("Skip Duplicates") { answerUploadClash(.skip) }
             Button("Cancel", role: .cancel) { browser.pendingUpload = nil }
         } message: {
             Text(clashMessage)
@@ -97,7 +97,7 @@ struct BrowserView: View {
 
             Spacer(minLength: 12)
 
-            if browser.isLoading { ProgressView().controlSize(.small) }
+            if browser.isLoading || browser.isPreparingCopy { ProgressView().controlSize(.small) }
 
             searchField
             sortMenu
@@ -244,7 +244,7 @@ struct BrowserView: View {
                     detail: "No item in \(browser.currentFolderName) contains “\(browser.searchText)”.")
         } else {
             message(icon: "folder", title: "This folder is empty",
-                    detail: "Drag files here from the Finder to copy them onto the phone.")
+                    detail: "Drag files or folders here from the Finder to copy them onto the phone.")
         }
     }
 
@@ -386,19 +386,29 @@ struct BrowserView: View {
     }
 
     private var clashQuestion: String {
-        guard let pending = browser.pendingUpload else { return "" }
-        return pending.clashes.count == 1
-            ? "The phone already has “\(pending.clashes[0])”"
-            : "The phone already has \(pending.clashes.count) files with these names"
+        guard let paths = browser.pendingUpload?.plan.clashPaths else { return "" }
+        return paths.count == 1
+            ? "The phone already has “\(paths[0])”"
+            : "The phone already has \(paths.count) items with these names"
     }
 
     private var clashMessage: String {
-        let warning = """
+        guard let pending = browser.pendingUpload else { return "" }
+        var parts = ["""
         The phone's storage treats upper and lower case as the same name, so Replace will destroy the \
         file that is already there.
-        """
-        guard let notice = browser.pendingUpload?.notice else { return warning }
-        return warning + "\n\n" + notice
+        """]
+        if pending.plan.hasClashOfDifferentKinds {
+            parts.append("Where a file meets a folder of the same name, Replace deletes neither; the copy takes a free name instead.")
+        }
+        if let notice = pending.notice { parts.append(notice) }
+        return parts.joined(separator: "\n\n")
+    }
+
+    private func answerUploadClash(_ choice: ClashChoice) {
+        Task {
+            if let note = await browser.resolvePendingUpload(choice) { problem = note }
+        }
     }
 
     private var downloadClashQuestion: String {
@@ -446,7 +456,7 @@ struct BrowserView: View {
                 }
             }
             guard !urls.isEmpty else { return }
-            if let note = browser.upload(urls) { problem = note }
+            if let note = await browser.upload(urls) { problem = note }
         }
         return true
     }

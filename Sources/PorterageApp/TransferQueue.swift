@@ -91,13 +91,10 @@ final class TransferQueue: ObservableObject {
         pump()
     }
 
-    func upload(_ urls: [URL], into folder: UInt32) {
-        upload(urls.map { ($0, $0.lastPathComponent) }, into: folder)
-    }
-
-    /// The name is separate from the file so "keep both" can land a copy under a free name.
-    func upload(_ items: [(URL, String)], into folder: UInt32) {
-        for (url, name) in items {
+    /// Each file carries its own phone folder, so a dropped folder tree queues as one batch. The name
+    /// is separate from the file so "keep both" can land a copy under a free name.
+    func upload(_ items: [(url: URL, name: String, folder: UInt32)]) {
+        for (url, name, folder) in items {
             let size = ((try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? NSNumber)?
                 .uint64Value ?? 0
             var job = TransferJob(name: name, direction: .toPhone, total: size)
