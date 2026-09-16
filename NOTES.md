@@ -121,6 +121,9 @@ Driven through the real window on 16 Sep, after everything below had passed in a
 | `.itemProvider` instead of `.onDrag` | Fixes selection but starts no drag at all: nothing could be dragged out. Both are needed — the tap gesture for selection, `.onDrag` for the drag. |
 | Space bar, and the delete key | `.onKeyPress(.space)` and `.onDeleteCommand` on the list never fired. Both are hidden `keyboardShortcut` buttons now, switched off while a sheet is up so the search field keeps its space bar. |
 | A file dragged out to the Finder | Landed as `photo.jpg.jpeg`: the item was registered as `public.jpeg`, and the Finder appends that type's extension to the suggested name. Registering plain `public.data` keeps the name. |
+| The space bar inside the preview, and its arrow keys | Same story: `.onKeyPress` never fired, so the sheet would not close with the space bar. Hidden shortcuts again. |
+| The space bar on a folder | Opened the preview, which then reported it could not read the file. Photos only now. |
+| ⌘-click on a second row | Did not extend the selection: `NSEvent.modifierFlags` reports the keyboard at the moment it is asked, not the click being handled. `NSApp.currentEvent` does. |
 | A phone that is unlocked but sharing no storage | Reported as "The phone is locked", which was wrong. It happens after switching USB modes back and forth, and picking File transfer again fixes it — the message now names both causes. |
 
 ## Connection states
@@ -318,10 +321,6 @@ On the test phone (Redmi 9T):
 - [ ] Find why a screen lock stopped a running copy on 15 Sep but not on 12 Sep.
 - [ ] Confirm Photo transfer (PTP) mode is reported as such.
 - [ ] An iPhone plugged in beside the phone: it must be ignored, and the phone still found.
-- [ ] ⌘-click to add a row to the selection: a synthetic ⌘-click did not extend it, which may be
-  the test rig rather than the app. Needs a human click.
-- [ ] The space bar inside the Quick Look sheet (it closes with Done; the key could not be delivered
-  to a sheet in the background).
 
 On a phone from another maker (nothing here has ever met one):
 

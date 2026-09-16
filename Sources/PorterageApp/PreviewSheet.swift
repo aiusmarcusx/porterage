@@ -64,9 +64,18 @@ struct PreviewSheet: View {
         }
         .frame(minWidth: 600, minHeight: 480)
         .task(id: entry.id) { await load() }
-        .onKeyPress(.leftArrow) { step(-1); return .handled }
-        .onKeyPress(.rightArrow) { step(1); return .handled }
-        .onKeyPress(.space) { dismiss(); return .handled }
+        // Hidden shortcuts rather than `.onKeyPress`, which never fired here either — measured, the
+        // space bar left the sheet open.
+        .background(key(KeyEquivalent(" ")) { dismiss() })
+        .background(key(.leftArrow) { step(-1) })
+        .background(key(.rightArrow) { step(1) })
+    }
+
+    private func key(_ equivalent: KeyEquivalent, action: @escaping () -> Void) -> some View {
+        Button("", action: action)
+            .keyboardShortcut(equivalent, modifiers: [])
+            .opacity(0)
+            .frame(width: 0, height: 0)
     }
 
     private var subtitle: String {

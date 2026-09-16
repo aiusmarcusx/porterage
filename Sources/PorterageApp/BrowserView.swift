@@ -361,8 +361,13 @@ struct BrowserView: View {
     }
 
     /// Plain click replaces the selection, ⌘-click adds to it — the same rules as the Finder.
+    ///
+    /// The flags come from the click being handled, not from `NSEvent.modifierFlags`, which reports
+    /// the keyboard's state at the moment it is asked: measured, a ⌘-click through it never extended
+    /// the selection.
     private func toggle(_ entry: MTPEntry) {
-        if NSEvent.modifierFlags.contains(.command) {
+        let flags = NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags
+        if flags.contains(.command) {
             if browser.selection.contains(entry.id) { browser.selection.remove(entry.id) }
             else { browser.selection.insert(entry.id) }
         } else {
@@ -394,10 +399,10 @@ struct BrowserView: View {
         }
     }
 
-    /// Space bar previews the first selected photo, the way Quick Look does.
+    /// Space bar previews the first selected photo, the way Quick Look does. Photos only: the sheet
+    /// fetches an image, and on a folder it used to open and report that it could not read the file.
     private func openPreview() {
         previewing = browser.selectedEntries.first { $0.isPhoto }
-            ?? browser.visibleEntries.first { browser.selection.contains($0.id) }
     }
 
     private func askToDeleteSelection() {
