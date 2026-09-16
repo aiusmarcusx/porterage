@@ -280,14 +280,25 @@ that, not the old shortcut.
 
 ## Still outstanding
 
-- [ ] Test closing the MacBook lid mid-transfer.
-- [ ] Test the SD card path (needs a phone with a card). The app reads only the first storage.
-- [ ] Re-measure on this app's engine: a file over 4 GiB, and pulling the cable mid-copy.
+On the test phone (Redmi 9T):
+
+- [ ] A file over 4 GiB through this engine — the size the old write path would have cut short.
+- [ ] Pull the cable mid-copy, and close the MacBook lid mid-copy.
 - [ ] Find why a screen lock stopped a running copy on 15 Sep but not on 12 Sep.
-- [ ] Use the window end to end on a phone: copy both ways, both name-clash questions, delete a
-  folder with files in it, drag a file to the Finder, Quick Look, selecting rows in the list.
-- [ ] Confirm Photo transfer mode is reported as such, and whether the phone deletes a non-empty
-  folder in one command.
-- [ ] Copy a folder tree onto the phone: into an empty folder, merged into a folder of the same
-  name with a clashing file inside it, and a folder meeting a file of the same name. Check the
-  whole-drop space check refuses a drop larger than the free space before anything is written.
+- [ ] Confirm Photo transfer (PTP) mode is reported as such.
+- [ ] An iPhone plugged in beside the phone: it must be ignored, and the phone still found.
+- [ ] The parts of the window only a person can check: drag a file out to the Finder, Quick Look
+  with the space bar, selecting rows in the list, and the two clash questions as drawn.
+- [ ] `mtpcheck selftest` against a build signed with `--options runtime`, before notarising.
+
+On a phone from another maker (nothing here has ever met one):
+
+- [ ] Connect, list, copy both ways. Samsung is the one competitors report most trouble with.
+- [ ] A phone with a microSD card: the app reads only the first storage, so the card is invisible.
+- [ ] A phone holding far more than 34,000 objects, for the first-listing wait.
+- [ ] Whether macOS's `ptpcamerad` takes the interface first, as reported against other MTP apps.
+
+In the app, no phone needed:
+
+- [ ] Copying a folder to the Mac does not recreate folders that are empty on the phone.
+- [ ] No application icon, and no way for an installed copy to learn that a new version exists.
