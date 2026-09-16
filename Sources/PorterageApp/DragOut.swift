@@ -23,11 +23,12 @@ enum DragOut {
         // Folders would need the whole subtree written out; offer files only for now.
         guard !entry.isFolder else { return provider }
 
-        let type = UTType(filenameExtension: (entry.name as NSString).pathExtension)?.identifier
-            ?? UTType.data.identifier
-
+        // Plain data, not the type the extension implies: with `public.jpeg` the Finder appends that
+        // type's own extension to the suggested name, and "photo.jpg" lands as "photo.jpg.jpeg".
+        // Measured on a real drop. The receiving app reads the kind from the name, as it would for
+        // any file copied out of the Finder.
         provider.registerFileRepresentation(
-            forTypeIdentifier: type,
+            forTypeIdentifier: UTType.data.identifier,
             fileOptions: [],
             visibility: .all
         ) { completion in

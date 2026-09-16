@@ -51,8 +51,11 @@ public enum MTPStatus: Equatable, Sendable {
     /// A device answers as a camera: an Android phone set to "Transfer photos (PTP)" presents the
     /// same interface class as MTP but leaves the MTP extension out of its device info.
     case photoMode
-    /// The session opens but the phone refuses to hand out its storage: it is locked.
-    case locked
+    /// The session opens but the phone hands back no storage. Measured causes, in that order: the
+    /// screen is locked, or the phone has not attached its storage to the cable — which happened on
+    /// an unlocked phone after switching USB modes back and forth, until File transfer was picked
+    /// again. The app names both rather than blaming the lock.
+    case noStorage
     /// Another program is holding the phone's USB interface.
     case busy
     /// The phone's MTP interface is ours but it will not start a session, even after a USB reset —
@@ -79,7 +82,7 @@ public enum MTPError: LocalizedError {
         case .notConnected:
             return "Not connected to a phone."
         case .phoneLocked:
-            return "The phone is locked. Unlock it and try again."
+            return "The phone isn't sharing its storage. Unlock the screen, or pick File transfer again on the phone."
         case let .call(what, code):
             return "\(what) failed (code \(code))."
         case let .notEnoughSpace(needed, free):

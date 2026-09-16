@@ -221,12 +221,38 @@ struct BrowserView: View {
                 if isDropTargeted { dropHighlight }
             }
             .onDrop(of: [.fileURL], isTargeted: $isDropTargeted, perform: handleDrop)
-            .onDeleteCommand(perform: askToDeleteSelection)
-            .onKeyPress(.space) { openPreview(); return .handled }
             .background(selectAllShortcut)
+            .background(previewShortcut)
+            .background(deleteShortcut)
         } else {
             connectionHelp
         }
+    }
+
+    /// Same trick for the space bar and the delete key: `.onKeyPress(.space)` and `.onDeleteCommand`
+    /// on the list never fired — measured, the key reached the row and nothing happened.
+    private var previewShortcut: some View {
+        shortcut(KeyEquivalent(" "), action: openPreview)
+    }
+
+    private var deleteShortcut: some View {
+        shortcut(.delete, action: askToDeleteSelection)
+    }
+
+    /// A shortcut with nothing to click. Switched off while a sheet or question is up, so the space
+    /// bar belongs to the search field and the delete key to whatever is being typed into.
+    private func shortcut(_ key: KeyEquivalent, action: @escaping () -> Void) -> some View {
+        Button("", action: action)
+            .keyboardShortcut(key, modifiers: [])
+            .opacity(0)
+            .frame(width: 0, height: 0)
+            .disabled(isAsking)
+    }
+
+    /// True while anything modal is on screen.
+    private var isAsking: Bool {
+        renaming != nil || isCreatingFolder || previewing != nil || problem != nil
+            || !deleting.isEmpty || browser.pendingUpload != nil || browser.pendingDownload != nil
     }
 
     /// Off-screen button purely so ⌘A reaches the browser; SwiftUI has no select-all command hook.
@@ -235,6 +261,7 @@ struct BrowserView: View {
             .keyboardShortcut("a", modifiers: .command)
             .opacity(0)
             .frame(width: 0, height: 0)
+            .disabled(isAsking)
     }
 
     @ViewBuilder
@@ -269,9 +296,14 @@ struct BrowserView: View {
                     .frame(width: 150, alignment: .trailing)
             }
             .contentShape(Rectangle())
-            // Has to be simultaneous: an ordinary onTapGesture swallows the single click the List
-            // needs to move its own selection, leaving rows unselectable.
+            // The List's own selection never fires here — measured: a click on a row left nothing
+            // selected and Copy to Mac disabled, while the grid, which handles the tap itself, worked.
+            // So the row sets the selection the same way the grid does, and the List binding shows it.
+            .onTapGesture { toggle(entry) }
             .simultaneousGesture(TapGesture(count: 2).onEnded { browser.open(entry) })
+            // `.onDrag`, which does take the mouse-down for itself — hence the tap gesture above, which
+            // sets the selection the List no longer gets to set. `.itemProvider` leaves selection alone
+            // but never starts a drag: measured, rows could not be dragged out to the Finder at all.
             .onDrag { browser.dragProvider(for: entry) }
             .contextMenu { menu(for: entry) }
         }
@@ -559,12 +591,13 @@ struct BrowserView: View {
                 • On the phone, pull down the notification shade, tap the USB notification, and choose **File transfer**.
                 """
             )
-        case .locked:
+        case .noStorage:
             message(
                 icon: "lock.fill",
-                title: "The phone is locked",
+                title: "The phone isn't sharing its storage",
                 detail: """
-                Android will not let a computer read its storage while the screen is locked. Unlock it and this window fills in by itself.
+                • **Unlock the screen.** Android will not let a computer read storage while the phone is locked, and this window fills in by itself once it is unlocked.
+                • **If it is already unlocked**, pull down the notification shade, tap the USB notification, and choose **File transfer** again.
 
                 Keep it unlocked while a copy runs: locking it can stop the copy part-way. A copy to the Mac continues from where it stopped when you copy it again.
                 """

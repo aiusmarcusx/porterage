@@ -111,6 +111,18 @@ now discards containers whose transaction id is not the one it sent.
 **The phone deletes a folder with everything in it in one `DeleteObject`** — 1,000 files in 9.5 s.
 The app still empties a folder first if a phone refuses.
 
+## What only clicking found
+
+Driven through the real window on 16 Sep, after everything below had passed in a harness:
+
+| | |
+|---|---|
+| A click on a row in list view | Selected nothing. `List(selection:)` never saw it; `.onDrag` on the row takes the mouse-down. The row now sets the selection itself, the way the grid always did. |
+| `.itemProvider` instead of `.onDrag` | Fixes selection but starts no drag at all: nothing could be dragged out. Both are needed — the tap gesture for selection, `.onDrag` for the drag. |
+| Space bar, and the delete key | `.onKeyPress(.space)` and `.onDeleteCommand` on the list never fired. Both are hidden `keyboardShortcut` buttons now, switched off while a sheet is up so the search field keeps its space bar. |
+| A file dragged out to the Finder | Landed as `photo.jpg.jpeg`: the item was registered as `public.jpeg`, and the Finder appends that type's extension to the suggested name. Registering plain `public.data` keeps the name. |
+| A phone that is unlocked but sharing no storage | Reported as "The phone is locked", which was wrong. It happens after switching USB modes back and forth, and picking File transfer again fixes it — the message now names both causes. |
+
 ## Connection states
 
 This is where other MTP clients do badly: every failure collapses into one unhelpful message.
@@ -306,8 +318,10 @@ On the test phone (Redmi 9T):
 - [ ] Find why a screen lock stopped a running copy on 15 Sep but not on 12 Sep.
 - [ ] Confirm Photo transfer (PTP) mode is reported as such.
 - [ ] An iPhone plugged in beside the phone: it must be ignored, and the phone still found.
-- [ ] The parts of the window only a person can check: drag a file out to the Finder, Quick Look
-  with the space bar, selecting rows in the list, and the two clash questions as drawn.
+- [ ] ⌘-click to add a row to the selection: a synthetic ⌘-click did not extend it, which may be
+  the test rig rather than the app. Needs a human click.
+- [ ] The space bar inside the Quick Look sheet (it closes with Done; the key could not be delivered
+  to a sheet in the background).
 
 On a phone from another maker (nothing here has ever met one):
 

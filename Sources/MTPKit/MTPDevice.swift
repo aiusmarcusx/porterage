@@ -6,8 +6,8 @@ import Foundation
 /// breaks the app when ignored (details in NOTES.md):
 ///
 ///  1. **One session, held open.** Every new session makes the phone pop up its "Use USB for…"
-///     dialog again, and a session opened per operation dies the moment the screen locks. A session
-///     that is already open keeps running at full speed through a screen lock.
+///     dialog again, and a locked phone refuses to hand out its storage to a new one. (A lock does
+///     not spare a running session either — measured 15 Sep, twice.)
 ///  2. **Drain the phone's event queue.** The phone raises an interrupt event per object written.
 ///     Leave them unread and pushes decay from 53 ms to 1,1 s per file, then MTP wedges for good
 ///     after ~211 objects and only a physical replug brings it back.
@@ -55,8 +55,8 @@ public final class MTPDevice: @unchecked Sendable {
         }
     }
 
-    /// A locked phone is a normal, expected state — the user simply has not unlocked it yet — so
-    /// this reports it and keeps waiting rather than treating it as a failure.
+    /// A phone that is locked, or not sharing its storage, is a normal state — the user simply has
+    /// not got to it yet — so this reports it and keeps waiting rather than treating it as a failure.
     private func attachLoop() {
         guard watching else { return }
         if session != nil {
@@ -112,11 +112,12 @@ public final class MTPDevice: @unchecked Sendable {
             return .photoMode
         }
 
-        // A locked phone opens the session happily and then hands back an empty storage list.
+        // A phone that is locked — or has not attached its storage — opens the session happily and
+        // then hands back an empty storage list.
         guard let first = try? candidateSession.storages().first, first.capacity > 0 else {
             candidateSession.close()
             candidate.close()
-            return .locked
+            return .noStorage
         }
 
         link = candidate
@@ -154,7 +155,7 @@ public final class MTPDevice: @unchecked Sendable {
             queue.async { [weak self] in
                 guard let self else { return continuation.resume(throwing: MTPError.notConnected) }
                 guard let session = self.session, let storage = self.storage else {
-                    continuation.resume(throwing: self.status == .locked ? MTPError.phoneLocked : MTPError.notConnected)
+                    continuation.resume(throwing: self.status == .noStorage ? MTPError.phoneLocked : MTPError.notConnected)
                     return
                 }
                 do {
