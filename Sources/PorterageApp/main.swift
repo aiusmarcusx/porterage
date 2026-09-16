@@ -32,6 +32,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
         appMenu.addItem(withTitle: "About Porterage", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        // Opens the releases page in the browser rather than asking GitHub what the latest version is:
+        // the app makes no network connections of its own, and that is worth more than the automation.
+        let updates = NSMenuItem(title: "Check for Updates…", action: #selector(openReleases), keyEquivalent: "")
+        updates.target = self
+        appMenu.addItem(updates)
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Hide Porterage", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         appMenu.addItem(withTitle: "Quit Porterage", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
@@ -58,6 +63,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         NSApp.mainMenu = main
         NSApp.windowsMenu = windowMenu
+    }
+
+    @objc private func openReleases() {
+        guard let url = URL(string: "https://github.com/aiusmarcusx/porterage/releases/latest") else { return }
+        NSWorkspace.shared.open(url)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_: NSApplication) -> Bool { true }

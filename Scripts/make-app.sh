@@ -41,6 +41,7 @@ fi
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BINARY" "$APP/Contents/MacOS/PorterageApp"
+cp "$ROOT/Resources/Porterage.icns" "$APP/Contents/Resources/Porterage.icns"
 rm -f "$ROOT/build/PorterageApp-universal"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
@@ -51,6 +52,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleName</key>              <string>Porterage</string>
   <key>CFBundleDisplayName</key>       <string>Porterage</string>
   <key>CFBundleExecutable</key>        <string>PorterageApp</string>
+  <key>CFBundleIconFile</key>          <string>Porterage</string>
   <key>CFBundleIdentifier</key>        <string>$BUNDLE_ID</string>
   <key>CFBundlePackageType</key>       <string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>

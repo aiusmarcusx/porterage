@@ -246,6 +246,15 @@ Cancelling mid-transfer leaves nothing behind.
   should be marked as one.
 - The test phone has a single storage and no SD card, so **the removable-storage path is untested**.
 
+## The icon
+
+`Resources/icon.html` is the source, drawn in CSS because this Mac has no image tooling, and
+`Scripts/make-icon.sh` photographs it with headless Chrome and builds `Resources/Porterage.icns`.
+Chrome writes the screenshot and then does not exit, so the script stops it once the file appears.
+
+The mark is the website's: a faceplate with three cells of the signal ladder, the first two lit.
+They rise rather than standing equal — three equal bars with two lit read as a pause button.
+
 ## Shipping
 
 The app links `libusb-1.0.a` statically, so a built `.app` has no Homebrew dependency —
@@ -300,5 +309,5 @@ On a phone from another maker (nothing here has ever met one):
 
 In the app, no phone needed:
 
-- [ ] Copying a folder to the Mac does not recreate folders that are empty on the phone.
-- [ ] No application icon, and no way for an installed copy to learn that a new version exists.
+- [ ] An installed copy still cannot learn that a new version exists on its own. The menu opens the
+  releases page; a check over the network would cost the app's "no network connections" claim.

@@ -27,6 +27,8 @@ final class PhoneBrowser: ObservableObject {
 
     struct PendingDownload {
         let work: [DownloadItem]
+        /// Every folder the copy needs on the Mac, parents first, empty ones included.
+        let folders: [URL]
         /// Names already present on this Mac where the copies would land.
         let clashes: [String]
     }
@@ -240,9 +242,10 @@ final class PhoneBrowser: ObservableObject {
         isPreparingCopy = true
         defer { isPreparingCopy = false }
         var work: [DownloadItem] = []
+        var folders: [URL] = []
         do {
             for entry in picked {
-                try await collect(entry, into: folder, appendingTo: &work)
+                try await collect(entry, into: folder, appendingTo: &work, folders: &folders)
             }
         } catch {
             // Copying the folders that could be read would end in "copied" over an incomplete set,
@@ -252,19 +255,34 @@ final class PhoneBrowser: ObservableObject {
         // Two phone names can land on one Mac name — the Mac ignores case, and the phone keeps NFC and
         // NFD spellings apart — so later ones take a free name instead of overwriting the first.
         work = withFreeNames(work) { _ in false }
+        // A folder cannot go where the Mac keeps a file of that name, and renaming the folder would
+        // scatter its contents, so this is the one case the copy refuses outright.
+        if let blocked = folders.first(where: { FileManager.default.fileExists(atPath: $0.path) && !Self.isFolder(at: $0) }) {
+            return "“\(blocked.lastPathComponent)” on this Mac is a file, so the folder of that name on the phone has nowhere to go. Rename or move it and copy again. Nothing was copied."
+        }
         let clashes = work.filter { FileManager.default.fileExists(atPath: $0.destination.path) }
         if clashes.isEmpty {
+            make(folders)
             transfers.download(work)
         } else {
-            pendingDownload = PendingDownload(work: work, clashes: clashes.map(\.destination.lastPathComponent))
+            pendingDownload = PendingDownload(work: work, folders: folders, clashes: clashes.map(\.destination.lastPathComponent))
         }
         return nil
+    }
+
+    /// Folders are created up front, so a folder that is empty on the phone is empty here rather than
+    /// missing. `TransferQueue` still creates the parents of each file it copies.
+    private func make(_ folders: [URL]) {
+        for folder in folders {
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        }
     }
 
     func resolvePendingDownload(_ choice: ClashChoice) {
         guard let pending = pendingDownload else { return }
         pendingDownload = nil
         let fm = FileManager.default
+        make(pending.folders)
         switch choice {
         case .skip:
             let missing = pending.work.filter { !fm.fileExists(atPath: $0.destination.path) }
@@ -316,13 +334,20 @@ final class PhoneBrowser: ObservableObject {
         var errorDescription: String? { "Couldn't read “\(name)” on the phone: \(reason.localizedDescription)" }
     }
 
-    /// Depth-first walk that turns a selection into a flat list of files plus where each one lands.
-    private func collect(_ entry: MTPEntry, into folder: URL, appendingTo work: inout [DownloadItem]) async throws {
+    /// Depth-first walk that turns a selection into a flat list of files plus where each one lands,
+    /// and the folders to create, parents first.
+    private func collect(
+        _ entry: MTPEntry,
+        into folder: URL,
+        appendingTo work: inout [DownloadItem],
+        folders: inout [URL]
+    ) async throws {
         guard entry.isFolder else {
             work.append((entry, folder.appendingPathComponent(entry.name)))
             return
         }
         let sub = folder.appendingPathComponent(entry.name)
+        folders.append(sub)
         let children: [MTPEntry]
         do {
             children = try await device.children(of: entry.id)
@@ -330,7 +355,7 @@ final class PhoneBrowser: ObservableObject {
             throw UnreadableFolder(name: entry.name, reason: error)
         }
         for child in children where !child.isHiddenByPhone {
-            try await collect(child, into: sub, appendingTo: &work)
+            try await collect(child, into: sub, appendingTo: &work, folders: &folders)
         }
     }
 

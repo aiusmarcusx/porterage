@@ -1,0 +1,58 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Porterage icon</title>
+<!--
+  The source for Resources/Porterage.icns, rendered by Scripts/make-icon.sh.
+
+  The mark is the website's own: a rack faceplate carrying three cells of a signal ladder, two lit and
+  one still dark — the same three that survive at 16 px in the site's favicon. Colours are the site's
+  tokens: panel #17181A, edge #34373B, signal #FFA51F, unlit cell #3C3222.
+
+  1024 canvas with the plate at 824, the proportion Apple's icon grid uses, so the plate sits at the
+  same size as every other icon in the Dock.
+-->
+<style>
+  html, body { margin: 0; width: 1024px; height: 1024px; background: transparent; }
+  .plate {
+    position: absolute; left: 100px; top: 100px; width: 824px; height: 824px;
+    border-radius: 185px;
+    background:
+      /* the machined face: lighter at the top edge, falling away to the bottom */
+      linear-gradient(160deg, #24272b 0%, #1a1c1f 46%, #121315 100%);
+    box-shadow:
+      0 24px 60px rgba(0, 0, 0, 0.45),
+      inset 0 2px 0 rgba(255, 255, 255, 0.10),
+      inset 0 0 0 4px #34373b,
+      inset 0 -3px 0 rgba(0, 0, 0, 0.55);
+    overflow: hidden;
+  }
+  /* Brushed metal, fine enough to read as texture at 128 px and vanish at 32 px. */
+  .plate::before {
+    content: ""; position: absolute; inset: 0;
+    background: repeating-linear-gradient(90deg,
+      rgba(255, 255, 255, 0.022) 0 1px, rgba(0, 0, 0, 0) 1px 3px);
+  }
+  /* Rising, not equal: three equal bars with two lit read as a pause button, and the mark is a meter —
+     two steps of the scale reached, the third not. */
+  .cells {
+    position: absolute; left: 176px; top: 222px; width: 472px; height: 380px;
+    display: flex; gap: 56px; align-items: flex-end;
+  }
+  .cell { width: 120px; border-radius: 16px; }
+  .cell:nth-child(1) { height: 196px; }
+  .cell:nth-child(2) { height: 288px; }
+  .cell:nth-child(3) { height: 380px; }
+  .cell--lit {
+    background: linear-gradient(180deg, #ffc061 0%, #ffa51f 38%, #d98607 100%);
+    box-shadow: 0 0 60px rgba(255, 165, 31, 0.42), inset 0 -6px 0 rgba(0, 0, 0, 0.22);
+  }
+  /* The cell the meter has not reached: the same lamp, unlit. */
+  .cell--dark { background: #3c3222; box-shadow: inset 0 0 0 2px rgba(255, 165, 31, 0.10); }
+</style>
+<div class="plate">
+  <div class="cells">
+    <div class="cell cell--lit"></div>
+    <div class="cell cell--lit"></div>
+    <div class="cell cell--dark"></div>
+  </div>
+</div>
