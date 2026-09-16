@@ -10,10 +10,13 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CONFIG="${1:-debug}"
 APP="$ROOT/build/Porterage.app"
 BUNDLE_ID="app.porterage"
-VERSION="0.1.0"
+VERSION="0.1.1"
 MIN_MACOS="14.0"
 
 cd "$ROOT"
+# The universal binary is lipo-ed into build/ before the bundle is laid out, and a fresh clone has
+# no build/ at all — without this, the first release build of a new checkout fails there.
+mkdir -p "$ROOT/build"
 
 if [ ! -f Vendor/lib/libusb-1.0.a ]; then
   echo "Vendor/lib/libusb-1.0.a is missing — run Scripts/build-libusb.sh first." >&2
