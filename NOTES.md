@@ -144,7 +144,8 @@ Same phone and Mac, through `MTPDevice` and the app's own `PhoneBrowser`, `Uploa
 | Download stopped at 50 %, copied again | `.part` held 256 MiB; the rest came at 37.9 MiB/s, SHA-256 identical |
 | Upload stopped at 25 % and at 90 % | Returned in 0.3–0.4 s, nothing left on the phone, next upload fine |
 | Device info in File transfer mode | Vendor extension 6 / `microsoft.com` present |
-| Folder drops, both clash questions both ways, a 200 GiB drop refused up front, folder delete | All 45 checks passed |
+| Folder drops, both clash questions both ways, a 200 GiB drop refused up front, folder delete | All checks passed |
+| 4,404,019,200 bytes (4.2 GiB) onto the phone and back | 237 s up (17.7 MiB/s), 111 s down (37.9 MiB/s), size exact, SHA-256 identical |
 
 ## Speed (prototype, 11–12 Sep)
 
@@ -255,6 +256,16 @@ Chrome writes the screenshot and then does not exit, so the script stops it once
 The mark is the website's: a faceplate with three cells of the signal ladder, the first two lit.
 They rise rather than standing equal — three equal bars with two lit read as a pause button.
 
+## libusb
+
+One context for the whole process, created on first use and never torn down. `libusb_exit` was caught
+hanging inside `darwin_exit`, waiting on the hotplug thread, at the end of a `mtpcheck selftest` run —
+in the app that call sits on the session queue, so a hang there would freeze the connection for good.
+Searching for a phone used to create and destroy a context every three seconds.
+
+A build signed with `--options runtime` (hardened runtime, ad-hoc, no entitlements) runs the whole
+`selftest` against the phone and exits cleanly, so notarising needs no USB entitlement.
+
 ## Shipping
 
 The app links `libusb-1.0.a` statically, so a built `.app` has no Homebrew dependency —
@@ -291,14 +302,12 @@ that, not the old shortcut.
 
 On the test phone (Redmi 9T):
 
-- [ ] A file over 4 GiB through this engine — the size the old write path would have cut short.
 - [ ] Pull the cable mid-copy, and close the MacBook lid mid-copy.
 - [ ] Find why a screen lock stopped a running copy on 15 Sep but not on 12 Sep.
 - [ ] Confirm Photo transfer (PTP) mode is reported as such.
 - [ ] An iPhone plugged in beside the phone: it must be ignored, and the phone still found.
 - [ ] The parts of the window only a person can check: drag a file out to the Finder, Quick Look
   with the space bar, selecting rows in the list, and the two clash questions as drawn.
-- [ ] `mtpcheck selftest` against a build signed with `--options runtime`, before notarising.
 
 On a phone from another maker (nothing here has ever met one):
 

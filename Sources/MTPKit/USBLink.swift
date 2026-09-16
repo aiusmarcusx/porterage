@@ -26,7 +26,15 @@ final class USBLink {
         }
     }
 
-    private var context: OpaquePointer?
+    /// One context for the life of the process. libusb is built to be started once, and tearing it
+    /// down has its own hazard: `libusb_exit` was caught hanging inside `darwin_exit`, waiting on the
+    /// hotplug thread, which would have frozen the session queue for good. Searching for a phone
+    /// opened and closed a context every three seconds.
+    private static let shared: OpaquePointer? = {
+        var context: OpaquePointer?
+        return libusb_init(&context) == 0 ? context : nil
+    }()
+
     private(set) var handle: OpaquePointer?
     private var interfaceNumber: Int32 = -1
     private(set) var bulkIn: UInt8 = 0
@@ -45,10 +53,7 @@ final class USBLink {
     private static let appleVendorID: UInt16 = 0x05AC
 
     init() throws {
-        var ctx: OpaquePointer?
-        let rc = libusb_init(&ctx)
-        guard rc == 0, let ctx else { throw Failure.noLibusb(rc) }
-        context = ctx
+        guard Self.shared != nil else { throw Failure.noLibusb(-1) }
     }
 
     deinit { close() }
@@ -58,7 +63,7 @@ final class USBLink {
     /// Claims the first interface that speaks MTP: either the standard still-image class, or the
     /// vendor-specific interface Android labels "MTP".
     func connect() throws {
-        guard let context else { throw Failure.notFound }
+        guard let context = Self.shared else { throw Failure.notFound }
         var list: UnsafeMutablePointer<OpaquePointer?>?
         let count = libusb_get_device_list(context, &list)
         defer { libusb_free_device_list(list, 1) }
@@ -216,7 +221,5 @@ final class USBLink {
         }
         handle = nil
         interfaceNumber = -1
-        if let context { libusb_exit(context) }
-        context = nil
     }
 }
