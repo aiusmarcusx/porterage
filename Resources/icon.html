@@ -11,8 +11,12 @@
   Redrawn 17 Sep 2026, when the site was rebuilt in macOS's own idiom. The old plate was a brushed
   metal faceplate with a hard 4 px edge — a nineties instrument. This one is lit the way current
   macOS icons are lit: one soft light from above, a cool graphite body, a hairline rim that catches
-  that light along the top only, and the amber throwing its own glow onto the plate beneath it.
+  that light along the top only, and the lit cells throwing their own glow onto the plate beneath them.
   Nothing is textured; the depth is all gradient and shadow.
+
+  Recoloured later on 17 Sep 2026 from amber to system blue, when the site went to a single hue: the
+  mark was the one place the old amber survived, and it read as a second colour beside every blue
+  control.
 
   1024 canvas with the plate at 824, the proportion Apple's icon grid uses, so the plate sits at the
   same size as every other icon in the Dock.
@@ -45,7 +49,7 @@
   /* What the lit cells throw back onto the plate. Without this the bars look printed on. */
   .plate::after {
     content: ""; position: absolute; left: 6%; bottom: -14%; width: 88%; height: 62%;
-    background: radial-gradient(50% 50% at 50% 50%, rgba(240, 160, 39, .20), rgba(240, 160, 39, 0) 72%);
+    background: radial-gradient(50% 50% at 50% 50%, rgba(10, 124, 255, .22), rgba(10, 124, 255, 0) 72%);
   }
 
   .cells {
@@ -58,19 +62,19 @@
   .cell:nth-child(3) { height: 396px; }
 
   .cell--lit {
-    background: linear-gradient(180deg, #ffd08a 0%, #ffb23f 30%, #ef9d1c 62%, #cd7c05 100%);
+    background: linear-gradient(180deg, #8cc2ff 0%, #3f96ff 30%, #0f73ee 62%, #0856c2 100%);
     box-shadow:
-      0 0 70px rgba(255, 170, 40, .40),
+      0 0 70px rgba(30, 130, 255, .42),
       0 10px 22px rgba(0, 0, 0, .30),
       inset 0 2px 0 rgba(255, 255, 255, .42),
-      inset 0 -4px 0 rgba(120, 62, 0, .28);
+      inset 0 -4px 0 rgba(0, 40, 110, .30);
   }
 
   /* The step the meter has not reached: the same cell, unlit, still visibly a cell. */
   .cell--dark {
-    background: linear-gradient(180deg, rgba(255, 176, 62, .085), rgba(255, 176, 62, .035));
+    background: linear-gradient(180deg, rgba(60, 150, 255, .10), rgba(60, 150, 255, .04));
     box-shadow:
-      inset 0 0 0 3px rgba(255, 176, 62, .16),
+      inset 0 0 0 3px rgba(60, 150, 255, .20),
       inset 0 2px 0 rgba(255, 255, 255, .05);
   }
 </style>

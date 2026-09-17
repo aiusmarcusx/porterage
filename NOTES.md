@@ -274,7 +274,9 @@ rise rather than standing equal — three equal bars with two lit read as a paus
 Redrawn 17 Sep 2026, when the site was rebuilt in macOS's own idiom. The old plate was brushed
 metal behind a hard 4 px edge; this one is lit the way current macOS icons are, one soft light from
 above on a cool graphite body, a hairline rim that only catches that light along the top, and the
-amber throwing a glow back onto the plate. No texture at all — the depth is gradient and shadow.
+lit cells throwing a glow back onto the plate. No texture at all — the depth is gradient and
+shadow. Recoloured from amber to system blue the same evening, when the site went to a single hue
+and the amber mark was the last second colour on it.
 
 The released 0.1.1 dmg still carries the old icon. This one ships with whatever comes next; do not
 rebuild and replace the published 0.1.1 asset, because its SHA-256 is recorded and was verified
