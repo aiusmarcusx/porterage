@@ -4,50 +4,75 @@
 <!--
   The source for Resources/Porterage.icns, rendered by Scripts/make-icon.sh.
 
-  The mark is the website's own: a rack faceplate carrying three cells of a signal ladder, two lit and
-  one still dark — the same three that survive at 16 px in the site's favicon. Colours are the site's
-  tokens: panel #17181A, edge #34373B, signal #FFA51F, unlit cell #3C3222.
+  The mark is a meter: three cells of a rising scale, two reached and the third not. It is the one
+  shape that survives 16 px, and it is the same mark the website carries in its toolbar, so the app
+  in the Dock and the site in a tab read as one product.
+
+  Redrawn 17 Sep 2026, when the site was rebuilt in macOS's own idiom. The old plate was a brushed
+  metal faceplate with a hard 4 px edge — a nineties instrument. This one is lit the way current
+  macOS icons are lit: one soft light from above, a cool graphite body, a hairline rim that catches
+  that light along the top only, and the amber throwing its own glow onto the plate beneath it.
+  Nothing is textured; the depth is all gradient and shadow.
 
   1024 canvas with the plate at 824, the proportion Apple's icon grid uses, so the plate sits at the
   same size as every other icon in the Dock.
 -->
 <style>
   html, body { margin: 0; width: 1024px; height: 1024px; background: transparent; }
+
   .plate {
     position: absolute; left: 100px; top: 100px; width: 824px; height: 824px;
     border-radius: 185px;
-    background:
-      /* the machined face: lighter at the top edge, falling away to the bottom */
-      linear-gradient(160deg, #24272b 0%, #1a1c1f 46%, #121315 100%);
+    /* Cool graphite, lightest at the top where the light falls, deepest in the lower third. */
+    background: linear-gradient(176deg, #333741 0%, #23262c 34%, #171a1e 68%, #101215 100%);
     box-shadow:
-      0 24px 60px rgba(0, 0, 0, 0.45),
-      inset 0 2px 0 rgba(255, 255, 255, 0.10),
-      inset 0 0 0 4px #34373b,
-      inset 0 -3px 0 rgba(0, 0, 0, 0.55);
+      /* the icon's own drop, the way macOS lights the Dock */
+      0 30px 64px rgba(0, 0, 0, .46),
+      0 8px 18px rgba(0, 0, 0, .32),
+      /* a rim that catches the light along the top edge and fades before the sides */
+      inset 0 2px 0 rgba(255, 255, 255, .13),
+      inset 0 0 0 1.5px rgba(255, 255, 255, .055),
+      inset 0 -2px 0 rgba(0, 0, 0, .40);
     overflow: hidden;
   }
-  /* Brushed metal, fine enough to read as texture at 128 px and vanish at 32 px. */
+
+  /* The light itself: a wide soft pool in the upper third, not a stripe. */
   .plate::before {
-    content: ""; position: absolute; inset: 0;
-    background: repeating-linear-gradient(90deg,
-      rgba(255, 255, 255, 0.022) 0 1px, rgba(0, 0, 0, 0) 1px 3px);
+    content: ""; position: absolute; left: -10%; top: -32%; width: 120%; height: 78%;
+    background: radial-gradient(60% 52% at 50% 50%, rgba(255, 255, 255, .085), rgba(255, 255, 255, 0) 70%);
   }
-  /* Rising, not equal: three equal bars with two lit read as a pause button, and the mark is a meter —
-     two steps of the scale reached, the third not. */
+
+  /* What the lit cells throw back onto the plate. Without this the bars look printed on. */
+  .plate::after {
+    content: ""; position: absolute; left: 6%; bottom: -14%; width: 88%; height: 62%;
+    background: radial-gradient(50% 50% at 50% 50%, rgba(240, 160, 39, .20), rgba(240, 160, 39, 0) 72%);
+  }
+
   .cells {
-    position: absolute; left: 176px; top: 222px; width: 472px; height: 380px;
-    display: flex; gap: 56px; align-items: flex-end;
+    position: absolute; left: 172px; top: 214px; width: 480px; height: 396px;
+    display: flex; gap: 60px; align-items: flex-end;
   }
-  .cell { width: 120px; border-radius: 16px; }
-  .cell:nth-child(1) { height: 196px; }
-  .cell:nth-child(2) { height: 288px; }
-  .cell:nth-child(3) { height: 380px; }
+  .cell { width: 120px; border-radius: 30px; position: relative; }
+  .cell:nth-child(1) { height: 190px; }
+  .cell:nth-child(2) { height: 285px; }
+  .cell:nth-child(3) { height: 396px; }
+
   .cell--lit {
-    background: linear-gradient(180deg, #ffc061 0%, #ffa51f 38%, #d98607 100%);
-    box-shadow: 0 0 60px rgba(255, 165, 31, 0.42), inset 0 -6px 0 rgba(0, 0, 0, 0.22);
+    background: linear-gradient(180deg, #ffd08a 0%, #ffb23f 30%, #ef9d1c 62%, #cd7c05 100%);
+    box-shadow:
+      0 0 70px rgba(255, 170, 40, .40),
+      0 10px 22px rgba(0, 0, 0, .30),
+      inset 0 2px 0 rgba(255, 255, 255, .42),
+      inset 0 -4px 0 rgba(120, 62, 0, .28);
   }
-  /* The cell the meter has not reached: the same lamp, unlit. */
-  .cell--dark { background: #3c3222; box-shadow: inset 0 0 0 2px rgba(255, 165, 31, 0.10); }
+
+  /* The step the meter has not reached: the same cell, unlit, still visibly a cell. */
+  .cell--dark {
+    background: linear-gradient(180deg, rgba(255, 176, 62, .085), rgba(255, 176, 62, .035));
+    box-shadow:
+      inset 0 0 0 3px rgba(255, 176, 62, .16),
+      inset 0 2px 0 rgba(255, 255, 255, .05);
+  }
 </style>
 <div class="plate">
   <div class="cells">
