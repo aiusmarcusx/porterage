@@ -16,13 +16,14 @@ Everything here came out of measuring a real phone rather than reading a specifi
 things that turned up:
 
 **Copying many small files wedges MTP.** The phone raises an interrupt event for every object
-written. A client that never reads that queue slows from 53 ms per file to about 1.1 seconds, and
-after roughly 211 files MTP stops answering until the cable is physically unplugged. Porterage drains
-the queue, so small files stay fast and the connection survives.
+written. A client that never reads that queue slows to about 1.1 seconds per file, and after
+roughly 211 files MTP stops answering until the cable is physically unplugged. Porterage drains the
+queue and holds 59 ms per file across a thousand in a row.
 
-**Listing a folder does not have to be slow.** Asking the phone about each file in turn takes 3.2
-seconds for 345 files. Asking for one property across the whole folder takes 0.56. Porterage speaks
-MTP directly to get at the faster command.
+**Listing a folder does not have to be slow.** Asking the phone about each file in turn took 3.2
+seconds for a folder of 345 files; asking for one property across the whole folder took 0.56 for the
+same folder. Porterage speaks MTP directly to get at the faster command, and the released app lists
+a 337-file camera folder in 0.4 seconds.
 
 **Two files can differ only in case — and destroy each other.** The phone's storage ignores case
 while the protocol does not, so `Report.txt` and `report.txt` both appear in a listing while sharing
