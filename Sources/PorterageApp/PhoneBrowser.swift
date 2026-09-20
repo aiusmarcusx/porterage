@@ -43,6 +43,10 @@ final class PhoneBrowser: ObservableObject {
     @Published private(set) var path: [MTPEntry] = []
     @Published var showsHiddenFiles = false
     @Published var selection: Set<MTPEntry.ID> = []
+    /// Where a Shift-click measures its range from: the last row clicked without Shift, the way the
+    /// Finder anchors one. Cleared whenever the rows underneath it change, because a range measured
+    /// from a row that is no longer on screen would select an arbitrary stretch of the new folder.
+    @Published var selectionAnchor: MTPEntry.ID?
     @Published var searchText = ""
     @Published var sortField: SortField = .name
     @Published var sortAscending = true
@@ -145,6 +149,7 @@ final class PhoneBrowser: ObservableObject {
     private func enterFolder() {
         entries = []
         selection = []
+        selectionAnchor = nil
         searchText = ""
         thumbnails.reset()
         reload()
@@ -161,6 +166,9 @@ final class PhoneBrowser: ObservableObject {
                 guard folder == currentFolder else { return }  // user moved on while we were listing
                 entries = found
                 selection = selection.filter { id in found.contains { $0.id == id } }
+                if let anchor = selectionAnchor, !found.contains(where: { $0.id == anchor }) {
+                    selectionAnchor = nil
+                }
                 thumbnails.load(found.filter { !$0.isHiddenByPhone })
             } catch {
                 entries = []
@@ -193,8 +201,57 @@ final class PhoneBrowser: ObservableObject {
 
     // MARK: - Selecting
 
-    func selectAll() { selection = Set(visibleEntries.map(\.id)) }
-    func clearSelection() { selection = [] }
+    /// What one click does, as the Finder does it.
+    ///
+    /// Kept pure and separate from the view so it can be tested without a window or a phone: every
+    /// case below is a unit test in `Tests/PorterageAppTests`. The rules are the platform's, not
+    /// this app's invention — plain click replaces and anchors, ⌘ toggles one row and re-anchors,
+    /// Shift takes the run between the anchor and the row, and ⌘⇧ adds that run to what is already
+    /// selected. A Shift-click with nothing anchored, or anchored to a row that has since gone,
+    /// falls back to a plain click rather than selecting a guess.
+    /// `nonisolated` because it touches no state: it is a function of its arguments alone, which is
+    /// what lets the checks call it without a main-actor hop or a live browser.
+    nonisolated static func selection(
+        from current: Set<MTPEntry.ID>,
+        anchor: MTPEntry.ID?,
+        clicking id: MTPEntry.ID,
+        in order: [MTPEntry.ID],
+        extending: Bool,
+        togglingOne: Bool
+    ) -> (selection: Set<MTPEntry.ID>, anchor: MTPEntry.ID?) {
+        if extending, let anchor, let from = order.firstIndex(of: anchor), let to = order.firstIndex(of: id) {
+            let run = order[min(from, to) ... max(from, to)]
+            // ⌘⇧ adds the run; ⇧ alone replaces the selection with it. The anchor does not move, so
+            // a second Shift-click re-measures from the same row instead of creeping down the list.
+            return (togglingOne ? current.union(run) : Set(run), anchor)
+        }
+        if togglingOne {
+            var next = current
+            if next.contains(id) { next.remove(id) } else { next.insert(id) }
+            return (next, id)
+        }
+        return ([id], id)
+    }
+
+    /// Applies one click to the live state.
+    func click(_ id: MTPEntry.ID, extending: Bool, togglingOne: Bool) {
+        let (next, anchor) = Self.selection(
+            from: selection, anchor: selectionAnchor, clicking: id,
+            in: visibleEntries.map(\.id), extending: extending, togglingOne: togglingOne
+        )
+        selection = next
+        selectionAnchor = anchor
+    }
+
+    func selectAll() {
+        selection = Set(visibleEntries.map(\.id))
+        selectionAnchor = visibleEntries.first?.id
+    }
+
+    func clearSelection() {
+        selection = []
+        selectionAnchor = nil
+    }
 
     // MARK: - Managing
 
@@ -228,6 +285,7 @@ final class PhoneBrowser: ObservableObject {
             do { try await device.delete(entry) } catch { failures.append(entry.name) }
         }
         selection = []
+        selectionAnchor = nil
         reload()
         return failures.isEmpty ? nil : "Could not delete: \(failures.joined(separator: ", "))"
     }

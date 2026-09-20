@@ -73,6 +73,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_: NSApplication) -> Bool { true }
 }
 
+// The rules that need no phone and no window, so that they are checked rather than assumed. See
+// SelectionChecks.swift for why this is a flag and not `swift test`.
+if CommandLine.arguments.contains("--check") { SelectionChecks.run() }
+
 let delegate = AppDelegate()
 NSApplication.shared.delegate = delegate
 NSApplication.shared.setActivationPolicy(.regular)

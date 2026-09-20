@@ -360,19 +360,15 @@ struct BrowserView: View {
         .contextMenu { menu(for: entry) }
     }
 
-    /// Plain click replaces the selection, ⌘-click adds to it — the same rules as the Finder.
+    /// Hands one click to the browser with the modifiers that were actually held for it.
     ///
     /// The flags come from the click being handled, not from `NSEvent.modifierFlags`, which reports
     /// the keyboard's state at the moment it is asked: measured, a ⌘-click through it never extended
-    /// the selection.
+    /// the selection. What each combination means lives in `PhoneBrowser.selection(from:...)`, where
+    /// it is tested.
     private func toggle(_ entry: MTPEntry) {
         let flags = NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags
-        if flags.contains(.command) {
-            if browser.selection.contains(entry.id) { browser.selection.remove(entry.id) }
-            else { browser.selection.insert(entry.id) }
-        } else {
-            browser.selection = [entry.id]
-        }
+        browser.click(entry.id, extending: flags.contains(.shift), togglingOne: flags.contains(.command))
     }
 
     // MARK: - Per-item menu
@@ -386,7 +382,9 @@ struct BrowserView: View {
             Button("Quick Look") { previewing = entry }
         }
         Button("Copy to Mac…") {
-            browser.selection = [entry.id]
+            // Through click(), so the anchor follows the selection rather than pointing at a row the
+            // user last touched some time ago.
+            browser.click(entry.id, extending: false, togglingOne: false)
             chooseDestination()
         }
         Divider()

@@ -132,7 +132,47 @@ Driven through the real window on 16 Sep, after everything below had passed in a
 | The space bar inside the preview, and its arrow keys | Same story: `.onKeyPress` never fired, so the sheet would not close with the space bar. Hidden shortcuts again. |
 | The space bar on a folder | Opened the preview, which then reported it could not read the file. Photos only now. |
 | ⌘-click on a second row | Did not extend the selection: `NSEvent.modifierFlags` reports the keyboard at the moment it is asked, not the click being handled. `NSApp.currentEvent` does. |
+| ⇧-click to take a range | Was not implemented at all — it landed as a plain click, so a folder of 300 photos took 300 clicks. Added 20 Sep, in both the list and the grid, with ⌘⇧ to add a run to the selection. |
 | A phone that is unlocked but sharing no storage | Reported as "The phone is locked", which was wrong. It happens after switching USB modes back and forth, and picking File transfer again fixes it — the message now names both causes. |
+
+## Selecting rows
+
+The Finder's rules, because a file browser that invents its own are simply wrong:
+
+| Click | What happens |
+|---|---|
+| Plain | Replaces the selection, and anchors there |
+| ⌘ | Toggles that one row, and re-anchors on it |
+| ⇧ | Takes the run between the anchor and the row. **The anchor does not move**, so a second ⇧-click re-measures from the same place instead of creeping down the list |
+| ⌘⇧ | Adds that run to what is already selected |
+
+The anchor is cleared whenever the rows under it change — entering a folder, and after a reload that
+no longer contains it. A ⇧-click with no anchor, or an anchor that has gone, falls back to a plain
+click: selecting a guessed range is worse than selecting one row.
+
+The run is taken from `visibleEntries`, which is the sorted and filtered order actually on screen, so
+⇧-click follows the sort the user chose rather than the order the phone returned.
+
+This was the second-most-requested thing in OpenMTP's tracker — open five years across
+[#243](https://github.com/ganeshrvel/openmtp/issues/243) and
+[#316](https://github.com/ganeshrvel/openmtp/issues/316) — and it was missing here too.
+
+## Checking what needs no phone
+
+**`swift test` cannot run on this machine.** With the command line tools and no Xcode, neither
+XCTest nor swift-testing is present, so a test target fails to compile at `import`. Rather than
+leave the one piece of logic that needs no hardware unchecked, the checks are a flag on the app:
+
+```
+swift run PorterageApp --check
+```
+
+21 checks over the selection rules, exit 0 or 1, so it works in a script. Verified on 20 Sep that it
+actually fails when the logic is broken — changing the range to a half-open one turned four checks
+red and the exit code to 1. A check that cannot go red is not a check.
+
+If Xcode ever gets installed, move these to a real test target; the logic is already a pure static
+function taking its inputs as arguments for exactly that reason.
 
 ## Connection states
 
