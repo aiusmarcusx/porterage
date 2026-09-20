@@ -43,6 +43,9 @@ final class USBLink {
     /// crawl and then wedges — see NOTES.md.
     private(set) var eventIn: UInt8 = 0
     private(set) var productName = ""
+    /// The USB product id. Android moves it between modes — `FF40` in File transfer and `FF10` in
+    /// Photo transfer on the test phone — so a mode change mid-session is visible here.
+    private(set) var productID: UInt16 = 0
     /// True when the claimed interface is the standard still-image class rather than Android's
     /// vendor-specific "MTP" one. PTP cameras share that class, so the caller has to ask the device
     /// what it speaks.
@@ -77,6 +80,7 @@ final class USBLink {
             // Never touch an iPhone or iPad plugged in beside the phone: its camera interface has the
             // same class as an MTP one, and claiming it would take it away from Photos.
             guard descriptor.idVendor != Self.appleVendorID else { continue }
+            let deviceProductID = descriptor.idProduct
             var configPointer: UnsafeMutablePointer<libusb_config_descriptor>?
             guard libusb_get_active_config_descriptor(device, &configPointer) == 0,
                   let config = configPointer else { continue }
@@ -132,6 +136,7 @@ final class USBLink {
                 eventIn = interruptEndpoint
                 isStillImageClass = isStillImage
                 packetSize = max(outPacket, 1)
+                productID = deviceProductID
                 productName = readProduct(candidate, descriptor)
                 return
             }

@@ -99,4 +99,47 @@ public final class MTPProbe {
         session.close()
         link.close()
     }
+
+    // MARK: - Diagnostics
+
+    /// What the bus and the phone say about themselves.
+    ///
+    /// Everything the connection screen decides is derived from these five facts, so when the app
+    /// names the wrong state this is the place to look first.
+    public struct Identity: Sendable {
+        public let productName: String
+        /// `FF40` in File transfer on the test phone, `FF10` in Photo transfer.
+        public let productID: UInt16
+        /// True when the claimed interface is the standard still-image class. PTP cameras and
+        /// Android's "Transfer photos" mode share it, so it does not settle the question by itself.
+        public let isStillImageClass: Bool
+        /// Whether the phone advertises MTP through vendor extension 6. `nil` when it will not say.
+        public let advertisesMTP: Bool?
+        public let storages: [MTPStorage]
+        /// The interrupt endpoint the phone announces new objects on. Zero means the interface did
+        /// not offer one, which would make draining impossible — see NOTES.md rule 2.
+        public let eventEndpoint: UInt8
+
+        /// The mode the phone is actually in, in the app's own words.
+        public var mode: String {
+            switch (isStillImageClass, advertisesMTP) {
+            case (false, _): return "File transfer (Android's vendor MTP interface)"
+            case (true, .some(true)): return "File transfer (still-image class, but it advertises MTP)"
+            case (true, .some(false)): return "Photo transfer / PTP"
+            case (true, .none): return "still-image class, and it would not say whether it speaks MTP"
+            }
+        }
+    }
+
+    /// Reads the identity without changing anything. Safe to call repeatedly during a soak.
+    public func identify() throws -> Identity {
+        Identity(
+            productName: link.productName,
+            productID: link.productID,
+            isStillImageClass: link.isStillImageClass,
+            advertisesMTP: session.advertisesMTP(),
+            storages: (try? session.storages()) ?? [],
+            eventEndpoint: link.eventIn
+        )
+    }
 }

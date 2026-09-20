@@ -72,6 +72,14 @@ Run `swift run mtpcheck selftest` to exercise the whole layer against a real pho
 folder, uploads a file, verifies the size, reads it back, compares SHA-256, renames, fetches a
 thumbnail, and cleans up.
 
+Two more commands exist for the questions a harness cannot ask itself, because they need a person to
+interfere at a moment of their choosing:
+
+| Command | Answers |
+|---|---|
+| `mtpcheck mode` | Which mode the phone is in — product id, interface class, whether it advertises MTP through vendor extension 6, how many storages it admits to, and whether the interface offers an event endpoint at all. One line per fact, then the app's own name for the state. |
+| `mtpcheck soak [minutes] [folder]` | Lists a folder and reads its largest file over and over, one timestamped line per cycle, reconnecting by itself every 3 s when the session dies. Lock the screen, pull the cable or close the lid at any moment; the log then says which call stalled, how long after the last good cycle, with what error, and whether it came back on its own — and prints the identity again after a reconnect, so a mode change shows as a changed product id. |
+
 ## Undocumented behaviour worth knowing
 
 **`GetObjectPropList` at depth 1 returns the folder you asked about *along with* its children.** Left
@@ -328,9 +336,11 @@ that, not the old shortcut.
 
 On the test phone (Redmi 9T):
 
-- [ ] Pull the cable mid-copy, and close the MacBook lid mid-copy.
-- [ ] Find why a screen lock stopped a running copy on 15 Sep but not on 12 Sep.
-- [ ] Confirm Photo transfer (PTP) mode is reported as such.
+- [ ] Pull the cable mid-copy, and close the MacBook lid mid-copy. — `mtpcheck soak`, pull whenever.
+- [ ] Find why a screen lock stopped a running copy on 15 Sep but not on 12 Sep. — `mtpcheck soak`,
+  lock the screen mid-cycle. This is the one that is load-bearing: the app and the website both tell
+  the user to keep the phone unlocked purely because the question is open.
+- [ ] Confirm Photo transfer (PTP) mode is reported as such. — switch the phone over, `mtpcheck mode`.
 - [ ] An iPhone plugged in beside the phone: it must be ignored, and the phone still found.
 
 On a phone from another maker (nothing here has ever met one):
