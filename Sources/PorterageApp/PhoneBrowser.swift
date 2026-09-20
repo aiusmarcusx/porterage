@@ -43,10 +43,14 @@ final class PhoneBrowser: ObservableObject {
     @Published private(set) var path: [MTPEntry] = []
     @Published var showsHiddenFiles = false
     @Published var selection: Set<MTPEntry.ID> = []
-    /// Where a Shift-click measures its range from: the last row clicked without Shift, the way the
-    /// Finder anchors one. Cleared whenever the rows underneath it change, because a range measured
-    /// from a row that is no longer on screen would select an arbitrary stretch of the new folder.
+    /// Where a Shift-click or Shift-arrow measures its range from: the last row reached without
+    /// Shift, the way the Finder anchors one. Cleared whenever the rows underneath it change, because
+    /// a range measured from a row that is no longer on screen would select an arbitrary stretch of
+    /// the new folder.
     @Published var selectionAnchor: MTPEntry.ID?
+    /// The row the keyboard is on — the moving end of a range, and where the next arrow steps from.
+    /// A click puts it on the row clicked; an arrow moves it by one.
+    @Published var selectionCursor: MTPEntry.ID?
     @Published var searchText = ""
     @Published var sortField: SortField = .name
     @Published var sortAscending = true
@@ -148,8 +152,7 @@ final class PhoneBrowser: ObservableObject {
     /// screen makes the app look stuck on the wrong place.
     private func enterFolder() {
         entries = []
-        selection = []
-        selectionAnchor = nil
+        rows = RowSelection()
         searchText = ""
         thumbnails.reset()
         reload()
@@ -165,10 +168,11 @@ final class PhoneBrowser: ObservableObject {
                 let found = try await device.children(of: folder)
                 guard folder == currentFolder else { return }  // user moved on while we were listing
                 entries = found
-                selection = selection.filter { id in found.contains { $0.id == id } }
-                if let anchor = selectionAnchor, !found.contains(where: { $0.id == anchor }) {
-                    selectionAnchor = nil
-                }
+                // A row that is gone cannot be selected, anchored to, or stepped from.
+                let alive = Set(found.map(\.id))
+                selection = selection.filter(alive.contains)
+                if let anchor = selectionAnchor, !alive.contains(anchor) { selectionAnchor = nil }
+                if let cursor = selectionCursor, !alive.contains(cursor) { selectionCursor = nil }
                 thumbnails.load(found.filter { !$0.isHiddenByPhone })
             } catch {
                 entries = []
@@ -201,57 +205,107 @@ final class PhoneBrowser: ObservableObject {
 
     // MARK: - Selecting
 
-    /// What one click does, as the Finder does it.
-    ///
-    /// Kept pure and separate from the view so it can be tested without a window or a phone: every
-    /// case below is a unit test in `Tests/PorterageAppTests`. The rules are the platform's, not
-    /// this app's invention — plain click replaces and anchors, ⌘ toggles one row and re-anchors,
-    /// Shift takes the run between the anchor and the row, and ⌘⇧ adds that run to what is already
-    /// selected. A Shift-click with nothing anchored, or anchored to a row that has since gone,
-    /// falls back to a plain click rather than selecting a guess.
-    /// `nonisolated` because it touches no state: it is a function of its arguments alone, which is
-    /// what lets the checks call it without a main-actor hop or a live browser.
-    nonisolated static func selection(
-        from current: Set<MTPEntry.ID>,
-        anchor: MTPEntry.ID?,
-        clicking id: MTPEntry.ID,
-        in order: [MTPEntry.ID],
-        extending: Bool,
-        togglingOne: Bool
-    ) -> (selection: Set<MTPEntry.ID>, anchor: MTPEntry.ID?) {
-        if extending, let anchor, let from = order.firstIndex(of: anchor), let to = order.firstIndex(of: id) {
-            let run = order[min(from, to) ... max(from, to)]
-            // ⌘⇧ adds the run; ⇧ alone replaces the selection with it. The anchor does not move, so
-            // a second Shift-click re-measures from the same row instead of creeping down the list.
-            return (togglingOne ? current.union(run) : Set(run), anchor)
-        }
-        if togglingOne {
-            var next = current
-            if next.contains(id) { next.remove(id) } else { next.insert(id) }
-            return (next, id)
-        }
-        return ([id], id)
+    /// The three things a file list has to remember: what is selected, where a range is measured
+    /// from, and where the keyboard is. They only make sense together, which is why they travel
+    /// together through the rules below.
+    struct RowSelection: Equatable, Sendable {
+        var ids: Set<MTPEntry.ID> = []
+        var anchor: MTPEntry.ID?
+        var cursor: MTPEntry.ID?
     }
 
-    /// Applies one click to the live state.
+    /// What one click does, as the Finder does it.
+    ///
+    /// Kept pure and separate from the view so it can be tested without a window or a phone; every
+    /// case is a test in `Tests/PorterageAppTests`. The rules are the platform's, not this app's
+    /// invention — plain click replaces and anchors, ⌘ toggles one row and re-anchors, ⇧ takes the
+    /// run between the anchor and the row, and ⌘⇧ adds that run to what is already selected. A
+    /// ⇧-click with nothing anchored, or anchored to a row that has since gone, falls back to a
+    /// plain click rather than selecting a guess.
+    ///
+    /// `nonisolated` because it touches no state: it is a function of its arguments alone, which is
+    /// what lets the tests call it without a main-actor hop or a live browser.
+    nonisolated static func clicking(
+        _ id: MTPEntry.ID,
+        in order: [MTPEntry.ID],
+        extending: Bool,
+        togglingOne: Bool,
+        from state: RowSelection
+    ) -> RowSelection {
+        if extending, let anchor = state.anchor,
+           let from = order.firstIndex(of: anchor), let to = order.firstIndex(of: id) {
+            let run = order[min(from, to) ... max(from, to)]
+            // ⌘⇧ adds the run; ⇧ alone replaces the selection with it. The anchor does not move, so
+            // a second ⇧-click re-measures from the same row instead of creeping down the list.
+            return RowSelection(ids: togglingOne ? state.ids.union(run) : Set(run), anchor: anchor, cursor: id)
+        }
+        if togglingOne {
+            var next = state.ids
+            if next.contains(id) { next.remove(id) } else { next.insert(id) }
+            return RowSelection(ids: next, anchor: id, cursor: id)
+        }
+        return RowSelection(ids: [id], anchor: id, cursor: id)
+    }
+
+    /// What one press of an arrow key does. `step` is +1 for down, -1 for up.
+    ///
+    /// The cursor moves; the anchor does not, so ⇧↓ then ⇧↑ shrinks the range again rather than
+    /// leaving rows behind. At either end the cursor stays where it is — the Finder does not wrap,
+    /// and wrapping in a file list means a keypress can jump a thousand rows.
+    nonisolated static func moving(
+        _ step: Int,
+        in order: [MTPEntry.ID],
+        extending: Bool,
+        from state: RowSelection
+    ) -> RowSelection {
+        guard !order.isEmpty else { return state }
+
+        // Nothing has the keyboard yet: the first arrow lands on an end of the list rather than
+        // doing nothing, which is what makes the keyboard usable without reaching for the mouse.
+        guard let cursor = state.cursor, let at = order.firstIndex(of: cursor) else {
+            let landing = step > 0 ? order[order.startIndex] : order[order.index(before: order.endIndex)]
+            return RowSelection(ids: [landing], anchor: landing, cursor: landing)
+        }
+
+        let next = order[min(max(at + step, 0), order.count - 1)]
+        guard extending else {
+            return RowSelection(ids: [next], anchor: next, cursor: next)
+        }
+        // ⇧ with nothing anchored measures from wherever the cursor already is.
+        let anchor = state.anchor ?? cursor
+        guard let from = order.firstIndex(of: anchor), let to = order.firstIndex(of: next) else {
+            return RowSelection(ids: [next], anchor: next, cursor: next)
+        }
+        return RowSelection(ids: Set(order[min(from, to) ... max(from, to)]), anchor: anchor, cursor: next)
+    }
+
+    /// The published properties as one value, so the pure rules above can be applied in one go.
+    private var rows: RowSelection {
+        get { RowSelection(ids: selection, anchor: selectionAnchor, cursor: selectionCursor) }
+        set {
+            selection = newValue.ids
+            selectionAnchor = newValue.anchor
+            selectionCursor = newValue.cursor
+        }
+    }
+
     func click(_ id: MTPEntry.ID, extending: Bool, togglingOne: Bool) {
-        let (next, anchor) = Self.selection(
-            from: selection, anchor: selectionAnchor, clicking: id,
-            in: visibleEntries.map(\.id), extending: extending, togglingOne: togglingOne
+        rows = Self.clicking(
+            id, in: visibleEntries.map(\.id),
+            extending: extending, togglingOne: togglingOne, from: rows
         )
-        selection = next
-        selectionAnchor = anchor
+    }
+
+    func move(_ step: Int, extending: Bool) {
+        rows = Self.moving(step, in: visibleEntries.map(\.id), extending: extending, from: rows)
     }
 
     func selectAll() {
-        selection = Set(visibleEntries.map(\.id))
-        selectionAnchor = visibleEntries.first?.id
+        let order = visibleEntries.map(\.id)
+        rows = RowSelection(ids: Set(order), anchor: order.first, cursor: order.last)
     }
 
-    func clearSelection() {
-        selection = []
-        selectionAnchor = nil
-    }
+    func clearSelection() { rows = RowSelection() }
 
     // MARK: - Managing
 
@@ -284,8 +338,7 @@ final class PhoneBrowser: ObservableObject {
         for entry in targets {
             do { try await device.delete(entry) } catch { failures.append(entry.name) }
         }
-        selection = []
-        selectionAnchor = nil
+        rows = RowSelection()
         reload()
         return failures.isEmpty ? nil : "Could not delete: \(failures.joined(separator: ", "))"
     }

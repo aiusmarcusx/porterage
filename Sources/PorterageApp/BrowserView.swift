@@ -99,8 +99,8 @@ struct BrowserView: View {
 
             if browser.isLoading || browser.isPreparingCopy { ProgressView().controlSize(.small) }
 
-            searchField
-            sortMenu
+            searchField.disabled(!browser.status.isReady)
+            sortMenu.disabled(!browser.status.isReady)
 
             Picker("", selection: $showsGrid) {
                 Image(systemName: "list.bullet").tag(false)
@@ -224,6 +224,7 @@ struct BrowserView: View {
             .background(selectAllShortcut)
             .background(previewShortcut)
             .background(deleteShortcut)
+            .background(arrowShortcuts)
         } else {
             connectionHelp
         }
@@ -239,11 +240,27 @@ struct BrowserView: View {
         shortcut(.delete, action: askToDeleteSelection)
     }
 
+    /// Moving the selection from the keyboard, which the list could not do at all: ↑ and ↓ step the
+    /// cursor, and holding ⇧ drags the range behind it. Same hidden-button trick as the space bar,
+    /// for the same measured reason.
+    private var arrowShortcuts: some View {
+        Group {
+            shortcut(.downArrow) { browser.move(1, extending: false) }
+            shortcut(.upArrow) { browser.move(-1, extending: false) }
+            shortcut(.downArrow, modifiers: .shift) { browser.move(1, extending: true) }
+            shortcut(.upArrow, modifiers: .shift) { browser.move(-1, extending: true) }
+        }
+    }
+
     /// A shortcut with nothing to click. Switched off while a sheet or question is up, so the space
     /// bar belongs to the search field and the delete key to whatever is being typed into.
-    private func shortcut(_ key: KeyEquivalent, action: @escaping () -> Void) -> some View {
+    private func shortcut(
+        _ key: KeyEquivalent,
+        modifiers: EventModifiers = [],
+        action: @escaping () -> Void
+    ) -> some View {
         Button("", action: action)
-            .keyboardShortcut(key, modifiers: [])
+            .keyboardShortcut(key, modifiers: modifiers)
             .opacity(0)
             .frame(width: 0, height: 0)
             .disabled(isAsking)
@@ -584,47 +601,55 @@ struct BrowserView: View {
     private var connectionHelp: some View {
         switch browser.status {
         case .searching:
-            message(icon: "cable.connector", title: "Looking for a phone…", detail: nil, spinner: true)
+            message(icon: "cable.connector", title: "Looking for a phone…", spinner: true)
         case .noDevice:
             message(
                 icon: "cable.connector.slash",
                 title: "No phone found",
-                detail: """
-                • Plug the phone into this Mac with a **data** cable — many charging cables carry power only.
-                • On the phone, pull down the notification shade, tap the USB notification, and choose **File transfer**.
-                """
+                steps: [
+                    "Plug the phone into this Mac with a **data** cable. Many charging cables carry power only.",
+                    "On the phone, pull down the notification shade, tap the USB notification, and choose **File transfer**.",
+                ],
+                footnote: "This window fills in by itself as soon as the phone appears."
             )
         case .noStorage:
             message(
                 icon: "lock.fill",
                 title: "The phone isn't sharing its storage",
-                detail: """
-                • **Unlock the screen.** Android will not let a computer read storage while the phone is locked, and this window fills in by itself once it is unlocked.
-                • **If it is already unlocked**, pull down the notification shade, tap the USB notification, and choose **File transfer** again.
-
-                Keep it unlocked while a copy runs: locking it can stop the copy part-way. A copy to the Mac continues from where it stopped when you copy it again.
+                steps: [
+                    "**Unlock the screen.** Android will not let a computer read storage while the phone is locked.",
+                    "If it is already unlocked, pull down the notification shade, tap the USB notification, and choose **File transfer** again.",
+                ],
+                footnote: """
+                Keep the phone unlocked while a copy runs: locking it can stop the copy part-way. A copy to \
+                the Mac continues from where it stopped when you copy it again.
                 """
             )
         case .photoMode:
             message(
                 icon: "photo.on.rectangle",
-                title: "A device is connected in Photo transfer mode",
+                title: "The phone is in Photo transfer mode",
                 detail: """
-                If it's your phone, pull down the notification shade, tap the USB notification, and choose **File transfer**. In Photo transfer mode a phone shows only its photo folders.
+                Pull down the notification shade on the phone, tap the USB notification, and choose \
+                **File transfer**. In Photo transfer mode a phone offers only its photo folders.
                 """
             )
         case .busy:
             message(
                 icon: "exclamationmark.triangle.fill",
                 title: "Another program is holding the phone",
-                detail: "Quit any other phone manager (OpenMTP, Android File Transfer, and so on) and try again."
+                detail: """
+                Quit any other phone manager — OpenMTP, Android File Transfer, and so on — and try again. \
+                Only one program can hold the cable at a time.
+                """
             )
         case .unresponsive:
             message(
                 icon: "bolt.horizontal.circle",
                 title: "The phone is connected but not answering",
                 detail: """
-                Unplug the cable and plug it back in. Once a phone stops answering, only a replug brings it back — restarting this app is not enough.
+                Unplug the cable and plug it back in. Once a phone stops answering, only a replug brings \
+                it back — restarting this app is not enough.
                 """
             )
         case .ready:
@@ -632,23 +657,62 @@ struct BrowserView: View {
         }
     }
 
-    private func message(icon: String, title: String, detail: String?, spinner: Bool = false) -> some View {
-        VStack(spacing: 12) {
+    /// Built on `ContentUnavailableView`, which is macOS's own empty state: it brings the platform's
+    /// metrics, its type ramp and its symbol treatment, so this screen is the same object the system
+    /// puts up rather than an approximation of one. It is the first thing anyone sees after
+    /// downloading, before there is a phone to look at, and it used to be a paragraph of text
+    /// bullets — "• " typed into a string, which reads as a README rather than as a Mac app.
+    ///
+    /// Steps are numbered rather than bulleted because the order is real: the cable has to carry data
+    /// before choosing File transfer can mean anything.
+    private func message(
+        icon: String,
+        title: String,
+        detail: String? = nil,
+        steps: [String] = [],
+        footnote: String? = nil,
+        spinner: Bool = false
+    ) -> some View {
+        ContentUnavailableView {
             if spinner {
-                ProgressView().controlSize(.large)
+                VStack(spacing: 12) {
+                    ProgressView().controlSize(.large)
+                    Text(title).font(.headline)
+                }
             } else {
-                Image(systemName: icon).font(.system(size: 40)).foregroundStyle(.tertiary)
+                Label(title, systemImage: icon)
             }
-            Text(title).font(.title3).fontWeight(.medium)
-            if let detail {
-                Text(LocalizedStringKey(detail))
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.leading)
-                    .frame(maxWidth: 420)
+        } description: {
+            VStack(alignment: .leading, spacing: 10) {
+                if let detail {
+                    Text(LocalizedStringKey(detail))
+                }
+                if !steps.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                Text("\(index + 1).")
+                                    .monospacedDigit()
+                                    .foregroundStyle(.tertiary)
+                                Text(LocalizedStringKey(step))
+                            }
+                        }
+                    }
+                }
+                if let footnote {
+                    Text(LocalizedStringKey(footnote))
+                        .font(.callout)
+                        .foregroundStyle(.tertiary)
+                }
             }
+            .multilineTextAlignment(.leading)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: 380, alignment: .leading)
         }
+        // ContentUnavailableView is content-sized. Without this the region stops filling the window,
+        // the whole stack centres itself, and the toolbar is pushed down the screen with a band of
+        // empty space above it — seen on the first build of this change.
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(40)
     }
 
     // MARK: - Footer

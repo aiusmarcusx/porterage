@@ -139,23 +139,41 @@ Driven through the real window on 16 Sep, after everything below had passed in a
 
 The Finder's rules, because a file browser that invents its own are simply wrong:
 
-| Click | What happens |
-|---|---|
-| Plain | Replaces the selection, and anchors there |
-| ⌘ | Toggles that one row, and re-anchors on it |
-| ⇧ | Takes the run between the anchor and the row. **The anchor does not move**, so a second ⇧-click re-measures from the same place instead of creeping down the list |
-| ⌘⇧ | Adds that run to what is already selected |
+Two positions are remembered, not one. The **anchor** is where a range is measured from; the
+**cursor** is where the keyboard is and which end of the range moves. Keeping them apart is what
+makes ⇧↓ then ⇧↑ shrink the range back instead of leaving rows behind.
 
-The anchor is cleared whenever the rows under it change — entering a folder, and after a reload that
-no longer contains it. A ⇧-click with no anchor, or an anchor that has gone, falls back to a plain
-click: selecting a guessed range is worse than selecting one row.
+| Input | What happens |
+|---|---|
+| Click | Replaces the selection; anchor and cursor both land on the row |
+| ⌘-click | Toggles that one row; anchor and cursor land on it |
+| ⇧-click | Takes the run between the anchor and the row. **The anchor does not move**, so a second ⇧-click re-measures from the same place instead of creeping; the cursor moves to the row clicked |
+| ⌘⇧-click | Adds that run to what is already selected |
+| ↑ / ↓ | Moves the cursor one row and takes the selection with it, re-anchoring there |
+| ⇧↑ / ⇧↓ | Moves the cursor one row and drags the range behind it, anchor unmoved |
+
+At either end the cursor stays put: the list does not wrap, because one keypress that jumps a
+thousand rows is not a convenience. With nothing selected, ↓ lands on the first row and ↑ on the
+last, so the keyboard is usable without reaching for the mouse first.
+
+Anchor and cursor are cleared whenever the rows under them change — entering a folder, and after a
+reload that no longer contains them. A ⇧-click with no anchor, or an anchor that has gone, falls
+back to a plain click: selecting a guessed range is worse than selecting one row.
 
 The run is taken from `visibleEntries`, which is the sorted and filtered order actually on screen, so
 ⇧-click follows the sort the user chose rather than the order the phone returned.
 
 This was the second-most-requested thing in OpenMTP's tracker — open five years across
 [#243](https://github.com/ganeshrvel/openmtp/issues/243) and
-[#316](https://github.com/ganeshrvel/openmtp/issues/316) — and it was missing here too.
+[#316](https://github.com/ganeshrvel/openmtp/issues/316) — and it was missing here too. #316's
+author calls shift+arrow their workaround, which is why the keyboard is worth having as well as the
+mouse.
+
+**The rules are tested; the wiring is not.** `PhoneBrowser.clicking` and `.moving` are pure and have
+29 tests behind them, but whether an arrow key actually reaches the list is the kind of thing this
+app has been wrong about before — `.onKeyPress` and `.onDeleteCommand` both silently never fired.
+The arrows use the same hidden-button trick that works for the space bar, but it has not been
+pressed against a real folder. See the outstanding list.
 
 ## Checking what needs no phone
 
@@ -188,6 +206,30 @@ test, and this is worth re-checking whenever the suite is touched.
 Everything else in this project needs a phone, which is exactly why the parts that do not should be
 kept here. The Pro licence logic, when it exists, belongs in this target too — it is pure local
 verification with no hardware in it.
+
+## The connection screen
+
+The first thing anyone sees, before there is a phone to look at, and for a while the only screen a
+new user reaches. Rebuilt 20 Sep on `ContentUnavailableView`, macOS 14's own empty state, so it
+carries the platform's metrics and type ramp rather than an approximation: the website was rebuilt
+in macOS's idiom and the app had not been.
+
+What it replaced was a paragraph with `• ` typed into the string — a README rather than a Mac app,
+and inconsistent even with itself, since three of the states used bullets and two did not. Steps are
+now numbered, because the order is real: the cable has to carry data before choosing File transfer
+can mean anything.
+
+Two things that were not obvious:
+
+- `ContentUnavailableView` is **content-sized**. Without `.frame(maxWidth: .infinity, maxHeight:
+  .infinity)` around it the region stops filling the window, the whole stack centres itself, and the
+  toolbar is pushed down the screen with a band of empty space above it. Seen on the first build.
+- The search field and the sort menu were **live with no phone attached** — you could type into a
+  search box that had nothing to search. Both are disabled now, like the other three toolbar
+  controls already were.
+
+All five states were checked by forcing each one in a throwaway build and looking at it, since four
+of them cannot be reached without hardware.
 
 ## Connection states
 
@@ -396,6 +438,11 @@ On the test phone (Redmi 9T):
   lock the screen mid-cycle. This is the one that is load-bearing: the app and the website both tell
   the user to keep the phone unlocked purely because the question is open.
 - [ ] Confirm Photo transfer (PTP) mode is reported as such. — switch the phone over, `mtpcheck mode`.
+- [ ] **Press the arrow keys against a real folder.** The rules are tested; the wiring is not, and
+  this app has twice shipped a key that never arrived. Check ↑ ↓ ⇧↑ ⇧↓ in both the list and the grid.
+- [ ] **Whether the list scrolls to follow the cursor.** Arrowing past the visible rows almost
+  certainly moves the selection off-screen — nothing asks the list to scroll to it. Needs rows to
+  see, then a `ScrollViewReader`.
 - [ ] An iPhone plugged in beside the phone: it must be ignored, and the phone still found.
 
 On a phone from another maker (nothing here has ever met one):
