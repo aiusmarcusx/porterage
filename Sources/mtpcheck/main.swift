@@ -260,8 +260,18 @@ if argument == "pull" {
             .max(by: { $0.size < $1.size }) else { print("nothing to read"); done.signal(); return }
 
         let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("porterage-pull.bin")
+        // The same thing TransferQueue holds during a copy, so a lid closed against this measures
+        // what a real copy would meet rather than what a bare command-line tool meets.
+        let activity = ProcessInfo.processInfo.beginActivity(
+            options: [.userInitiated, .idleSystemSleepDisabled],
+            reason: "mtpcheck pull"
+        )
+        defer { ProcessInfo.processInfo.endActivity(activity) }
+
         let deadline = Date().addingTimeInterval(minutes * 60)
         var cycle = 0, failures = 0
+        // Any gap worth noticing — a sleep, a stall — gets its own line, whatever the cycle count is.
+        var lastEnded = Date()
         // Every copy is hashed. A recovery that resumed from the wrong offset would still finish and
         // still be the right length; only the hash catches it.
         var hashes = Set<String>()
@@ -281,6 +291,12 @@ if argument == "pull" {
                 }
                 let took = Date().timeIntervalSince(started)
                 let rate = Double(biggest.size) / took / 1_048_576
+                let gap = started.timeIntervalSince(lastEnded)
+                lastEnded = Date()
+                if gap > 2 {
+                    print(String(format: "[%@] ⏸  %.1f s went by between cycle %d and %d",
+                                 clock.string(from: Date()), gap, cycle - 1, cycle))
+                }
                 if cycle % 20 == 0 || device.recoveryAttempts > 0 {
                     print(String(format: "[%@] cycle %d: %.2f s (%.1f MiB/s) · carried through %d of %d drop(s)",
                                  clock.string(from: Date()), cycle, took, rate,

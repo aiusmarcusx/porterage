@@ -277,6 +277,41 @@ Two things that were not obvious:
 All five states were checked by forcing each one in a throwaway build and looking at it, since four
 of them cannot be reached without hardware.
 
+## A closed lid is safe; a pulled cable is not
+
+Measured 21 Sep, with macOS's own `pmset -g log` as the witness rather than this project's tooling.
+
+**The Mac sleeps when the lid closes, and nothing in the app can stop it.** `TransferQueue` holds
+`beginActivity(.idleSystemSleepDisabled)` for the length of a copy, and `pmset` shows exactly what
+that buys:
+
+```
+PreventSystemSleep           0
+PreventUserIdleSystemSleep   1
+```
+
+Idle sleep is prevented; clamshell sleep is not. The comment in `runLoop` guessed this and it is now
+confirmed from the other side.
+
+**The MTP session survives it.** A 50-second clamshell sleep during a `pull` run:
+
+```
+01:02:43  Entering Sleep state due to 'Clamshell Sleep' ... 50 secs
+01:03:33  Wake ... due to lid
+[01:02:32] cycle 220     ← before
+[01:03:34] cycle 240     ← after
+```
+
+965 cycles over the whole run, **zero sessions lost, zero reconnects**, and every copy byte-identical
+by SHA-256 — the same hash as a 967-cycle run with no sleep in it, so nothing was corrupted by being
+frozen.
+
+The sleep landed **inside** a read, not between two: the log's gap detector fires between cycles and
+never printed, so a transfer in flight was frozen for fifty seconds and finished correctly on wake.
+
+So a closed lid pauses a copy; it does not break one. That is worth saying on the website, and it is
+the opposite of the cable.
+
 ## A pulled cable cannot be recovered from, and that is not a bug
 
 Measured 21 Sep by pulling the cable mid-copy, twice.
@@ -519,8 +554,9 @@ On the test phone (Redmi 9T):
 - [x] ~~Pull the cable mid-copy.~~ Done 21 Sep — two bugs found and fixed, see "A pulled cable
   cannot be recovered from". The phone needs File transfer picked again by hand after every replug,
   so no amount of retrying bridges it.
-- [ ] Close the MacBook lid mid-copy. Still untested; `TransferQueue` holds the Mac awake with
-  `idleSystemSleepDisabled`, which by its own comment does not cover a closed lid.
+- [x] ~~Close the MacBook lid mid-copy.~~ Done 21 Sep. The Mac sleeps — `idleSystemSleepDisabled`
+  does not cover clamshell, confirmed from `pmset` — and the MTP session comes through it intact, mid
+  transfer, byte-exact. See "A closed lid is safe".
 - [ ] **Find why a screen lock stopped a running copy on 15 Sep but not on 12 Sep.** Still open. The
   20 Sep runs answered a different question — the periodic session losses are an unread event queue,
   which the app already drains — and their screen state turned out not to have been observed, so they
