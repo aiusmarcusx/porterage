@@ -19,8 +19,9 @@ every fifteen seconds makes that prompt appear over and over.
 
 A locked screen blocks opening a new session: it opens, but `GetStorageIDs` comes back empty.
 
-**A locked screen behaves differently depending on whether traffic is already flowing — measured
-20 Sep, and this resolves most of the contradiction below.**
+**Whether a lock stops a session that is already running is still unresolved, so assume it does.**
+The 20–21 Sep runs below set out to settle it and did not: the session losses they chased turned out
+to belong to the diagnostic harness rather than the app, and the screen state was never observed.
 
 | Measured | Result |
 |---|---|
@@ -31,46 +32,41 @@ In the 15 Sep runs no MTP event arrived before the stall (events were being drai
 slices) and the USB product id stayed `FF40`, so neither an unread event nor a mode change explains
 it.
 
-### What a locked screen actually does, measured 20 Sep
+### Sessions lost on reads: what it is not, measured 20–21 Sep
 
-Three runs against the same phone and the same 20.3 MiB photo, one variable at a time:
+`mtpcheck soak` loses its session every two to four minutes: `GetPartialObject64` (`0x95C1`) refused
+with `0x2002`, immediately rather than by timeout, 0.5–0.7 s after the previous good cycle, and a
+fresh session takes it straight back at full speed. Two runs, 533 and 507 cycles, three losses and
+two.
 
-| Run | Screen | Reads the event queue | Cycles | Sessions lost | Rate |
-|---|---|---|---|---|---|
-| `mtpcheck soak` | locked | no | 533 | **3** | 37.8 MiB/s |
-| `mtpcheck soak` | **unlocked** | no | 507 | **2** | 37.7 MiB/s |
-| `mtpcheck pull` | locked | **yes** | 875 | **0** | 37.5 MiB/s |
+**`mtpcheck pull` never loses one.** Four runs through `MTPDevice`, the layer the app itself uses:
 
-Every loss was identical: `GetPartialObject64` (`0x95C1`) refused with `0x2002`, immediately — 0.5 to
-0.7 s after the previous good cycle, never a timeout — and a fresh session took it straight back at
-full speed.
+| Reads | Event queue drained | Cycles | Sessions lost |
+|---|---|---|---|
+| 20.3 MiB photo | yes | 875 | 0 |
+| 20.3 MiB photo | **no** | 967 | 0 |
+| 512 MiB staged file | **no** | 45 | 0 |
 
-**The lock has nothing to do with it.** An unlocked phone throws the session away just as readily.
-What decides it is whether anyone is reading the phone's event queue: `MTPProbe` does not, `MTPDevice`
-does after every command, and the third row is nine minutes of a locked phone at full speed with no
-interruption at all.
+About 1,900 reads through the app's own path without a single loss, and every copy byte-identical by
+SHA-256 — including 45 copies of half a gigabyte.
 
-The first version of this section said the lock caused the drops. It was written from the locked run
-alone, before the unlocked control existed, and it was wrong. One run is a measurement; two runs
-differing in one variable is a finding.
+**Draining is not what makes the difference**, which is what the first two runs were written up as
+saying. The 875-cycle and 967-cycle rows are the same workload on the same file through the same code
+with draining the only variable, and they are the same result. The earlier pairing compared `soak`
+against `pull` and called it an event-queue finding; it had changed four things at once — the layer,
+whether events were drained, whether the folder was listed every cycle, and the rate. That was the
+second wrong conclusion in an hour from the same mistake, after writing the lesson about it down.
 
-So **rule 2 above is bigger than it looks.** An unread event queue does not only decay small-file
-writes and wedge MTP after ~211 objects; it also loses the session every two to four minutes on plain
-reads. The app has always drained, which is why none of this was ever visible through the app.
+**What is left as a suspect** is the listing. `soak` re-resolves `DCIM/Camera` from the root and lists
+360 objects on every cycle, roughly once a second; `pull` resolves once and then only reads. Nothing
+has tested that yet.
 
-### Two locked states, which is separate and still true
+**What this does say about the product:** the app's own path has never lost a session in any run —
+about 1,900 reads across three configurations. Whatever `soak` is provoking, it is being provoked by
+the diagnostic harness rather than by anything the app does.
 
-- **Locked and idle.** A session opened against a locked phone that nobody is talking to gets an
-  empty storage list. Seen twice on 20 Sep: at the start of the session, and again within a minute of
-  a soak ending — the phone gives storage up once nothing is asking.
-- **Locked and busy.** With the event queue drained, a running session is untouched by the lock.
-
-**Still open, and it is the only thing keeping the "keep the phone unlocked" warning on the app and
-the website:** the 15 Sep stall was measured *with* draining on, reading 512 MiB at a time — about
-fourteen seconds a read — and the session only came back after unlocking. Today's reads were 0.55 s.
-Whether a long single read is what a lock actually breaks has not been tested, because there was no
-file that size on the phone. Stage one with `mtpcheck stage` and read it back under a locked screen;
-that one run decides whether the warning can go.
+Rule 2 below stands exactly as it was — drained writes hold 59 ms per file where undrained ones decay
+and wedge — and is untouched by any of this, which was about reads.
 
 ### 2. Drain the phone's event queue
 
@@ -484,17 +480,22 @@ that, not the old shortcut.
 On the test phone (Redmi 9T):
 
 - [ ] Pull the cable mid-copy, and close the MacBook lid mid-copy. — `mtpcheck soak`, pull whenever.
-- [x] ~~Find why a screen lock stopped a running copy on 15 Sep but not on 12 Sep.~~ Mostly answered
-  20 Sep — see the table. The periodic session loss is an unread event queue, not the lock, and the
-  app has always drained. What is left is the 512 MiB case below.
-- [ ] **Stage a file of a few hundred MiB and read it back under a locked screen.** The one run that
-  decides whether the "keep the phone unlocked" warning can come off the app and the website. 15 Sep
-  stalled on a 512 MiB read with draining on; 20 Sep did not stall in 875 reads of 20 MiB. Read
-  length is the only variable left.
+- [ ] **Find why a screen lock stopped a running copy on 15 Sep but not on 12 Sep.** Still open. The
+  20 Sep runs answered a different question — the periodic session losses are an unread event queue,
+  which the app already drains — and their screen state turned out not to have been observed, so they
+  say nothing about the lock either way.
+- [ ] **Read `Download/locktest` back under a screen that is verifiably locked.** 512 MiB is staged
+  for it. This is the run that decides whether the "keep the phone unlocked" warning can come off the
+  app and the website: 15 Sep stalled on a read that long with draining on, 20 Sep passed 875 reads
+  of 20 MiB. Read length is the variable. Whoever runs it must confirm the screen is actually off.
 - [x] ~~Reconnect and carry on when a command is refused mid-copy.~~ Built 20 Sep for downloads only,
-  where the `.part` file makes a second attempt a resume rather than a restart. **Not proven to fire:
-  the 875-cycle run never lost a session, so it was never called.** Pull the cable mid-copy to prove
-  it.
+  where the `.part` file makes a second attempt a resume rather than a restart. **Still unproven after
+  about 1,900 reads: nothing in the app's path has ever dropped a session, so it has never been
+  called once.** The only way left to exercise it is to break the connection on purpose — pull the
+  cable mid-copy, or drive `MTPDevice` against the workload `soak` uses.
+- [ ] **Find what `soak` provokes that `pull` does not.** Prime suspect is the folder listing: `soak`
+  re-resolves the path and lists 360 objects every cycle, `pull` resolves once. Low priority, because
+  it has never been seen through the app — but it is a real, reproducible refusal on real hardware.
 - [ ] **Reconnect for uploads.** Deliberately not done. A dropped session can leave a half-written
   object on the phone, the tidy-up delete goes through the session that just died, and the retry then
   meets its own name — which the phone rejects. It needs its own design, not the download's.

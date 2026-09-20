@@ -260,6 +260,9 @@ if argument == "pull" {
         let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("porterage-pull.bin")
         let deadline = Date().addingTimeInterval(minutes * 60)
         var cycle = 0, failures = 0
+        // Every copy is hashed. A recovery that resumed from the wrong offset would still finish and
+        // still be the right length; only the hash catches it.
+        var hashes = Set<String>()
 
         print("Pulling \(biggest.name) (\(String(format: "%.1f", Double(biggest.size) / 1_048_576)) MiB) "
             + "through the app's own session for \(String(format: "%.0f", minutes)) minutes.")
@@ -271,6 +274,9 @@ if argument == "pull" {
             let started = Date()
             do {
                 try await device.download(biggest, to: scratch) { _, _ in }
+                if let data = try? Data(contentsOf: scratch, options: .mappedIfSafe) {
+                    hashes.insert(SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined())
+                }
                 let took = Date().timeIntervalSince(started)
                 let rate = Double(biggest.size) / took / 1_048_576
                 if cycle % 20 == 0 || device.recoveries > 0 {
@@ -284,6 +290,12 @@ if argument == "pull" {
         }
         try? FileManager.default.removeItem(at: scratch)
         print("\n\(cycle) cycles · \(device.recoveries) recovered from a dropped session · \(failures) gave up")
+        if hashes.count == 1, let only = hashes.first {
+            print("every copy identical: SHA-256 \(only.prefix(24))…")
+        } else {
+            print("⚠️  \(hashes.count) DIFFERENT hashes across the copies — a recovery corrupted one")
+            for h in hashes { print("     \(h.prefix(24))…") }
+        }
         done.signal()
     }
 
