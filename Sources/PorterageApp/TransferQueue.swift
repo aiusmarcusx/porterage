@@ -142,6 +142,14 @@ final class TransferQueue: ObservableObject {
                 setState(job.id, .cancelled)
             } catch {
                 setState(job.id, .failed(error.localizedDescription))
+                // A file that will not copy is one failed row. A cable that has come out fails every
+                // row after it, instantly and identically — measured 21 Sep, 160,512 of them in ten
+                // seconds once the phone was unplugged mid-copy. Stop and say so once instead.
+                if isConnectionLost(error) {
+                    let reason = "Not copied — the phone disconnected part-way through."
+                    for (waiting, _) in pending { setState(waiting.id, .failed(reason)) }
+                    pending.removeAll()
+                }
             }
             activeStart = nil
         }

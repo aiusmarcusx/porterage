@@ -277,6 +277,43 @@ Two things that were not obvious:
 All five states were checked by forcing each one in a throwaway build and looking at it, since four
 of them cannot be reached without hardware.
 
+## A pulled cable cannot be recovered from, and that is not a bug
+
+Measured 21 Sep by pulling the cable mid-copy, twice.
+
+**The phone does not come back on its own.** On replug, Android returns to *no data transfer* and
+puts its "Use USB for…" dialog on the screen; until somebody taps **File transfer**, the Mac sees a
+device with no MTP storage. That is seconds at best, and nobody is watching the phone during a copy.
+
+So no retry window bridges a pulled cable. A four-second one certainly does not, and a longer one
+only turns a pulled cable into a longer hang. **The reconnect in `perform` is not for this** — it is
+for a session the phone throws away while the cable stays in, which is a different and much shorter
+outage. It has still never been seen to succeed, across roughly 2,500 reads.
+
+What is right for a pulled cable is what the app now does: stop, say so once, and make the next
+attempt cheap. The copy resumes from its `.part` file, and the connection screen already tells the
+user exactly the thing they need to do — *choose File transfer on the phone* — because that is the
+same state as a phone that was never set to File transfer in the first place.
+
+### Two bugs the cable pull found, both fixed the same day
+
+Neither showed up in ~1,900 uninterrupted reads. Only breaking the connection on purpose found them.
+
+**`perform` never reconnected after the first failure.** The guard that fetches the session runs
+*before* the `do`/`catch`, so once `session` was nil every call threw `notConnected` immediately
+without reaching the retry at all. Measured: **160,512 failures in ten seconds**, a 19.6 MB log —
+and, worse, those failures queued onto the same serial queue as `attachLoop`, so the background
+reconnect never got a turn. The phone was plugged back in and the app stayed dead.
+
+It now attempts a reattach when there is no session, for work that is safe to repeat, with at most
+one attempt per five seconds — because reattaching costs four seconds when the phone is genuinely
+gone, and paying that per file would turn a pulled cable into twenty minutes of apparent hanging.
+
+**`TransferQueue` ran on through every remaining file.** A lost phone fails every queued job
+instantly and identically; 300 photos meant 300 identical error rows. It now recognises a
+connection-level error, stops, and marks what is left with one sentence: *Not copied — the phone
+disconnected part-way through.*
+
 ## Connection states
 
 This is where other MTP clients do badly: every failure collapses into one unhelpful message.
@@ -479,7 +516,11 @@ that, not the old shortcut.
 
 On the test phone (Redmi 9T):
 
-- [ ] Pull the cable mid-copy, and close the MacBook lid mid-copy. — `mtpcheck soak`, pull whenever.
+- [x] ~~Pull the cable mid-copy.~~ Done 21 Sep — two bugs found and fixed, see "A pulled cable
+  cannot be recovered from". The phone needs File transfer picked again by hand after every replug,
+  so no amount of retrying bridges it.
+- [ ] Close the MacBook lid mid-copy. Still untested; `TransferQueue` holds the Mac awake with
+  `idleSystemSleepDisabled`, which by its own comment does not cover a closed lid.
 - [ ] **Find why a screen lock stopped a running copy on 15 Sep but not on 12 Sep.** Still open. The
   20 Sep runs answered a different question — the periodic session losses are an unread event queue,
   which the app already drains — and their screen state turned out not to have been observed, so they

@@ -25,8 +25,11 @@ public final class MTPDevice: @unchecked Sendable {
     private var watching = false
     /// Sessions that would not open in a row, on a phone whose interface was claimed.
     private var failedOpens = 0
-    /// How many times a command was carried through a dropped session. Diagnostics only.
+    /// How many times a command was carried through a dropped session, and how many times one was
+    /// attempted at all. Diagnostics only — a gap between the two is a session that went and did not
+    /// come back inside the retry window.
     public private(set) var recoveries = 0
+    public private(set) var recoveryAttempts = 0
     private var status: MTPStatus = .searching {
         didSet {
             guard status != oldValue else { return }
@@ -165,6 +168,14 @@ public final class MTPDevice: @unchecked Sendable {
         try await withCheckedThrowingContinuation { continuation in
             queue.async { [weak self] in
                 guard let self else { return continuation.resume(throwing: MTPError.notConnected) }
+                if self.session == nil || self.storage == nil, retryingOnce, self.mayTryReattach() {
+                    // No session at all. Measured 21 Sep by pulling the cable: without this, every
+                    // remaining file in a copy failed in the same millisecond, and the failures
+                    // queued here so densely that attachLoop — which shares this serial queue —
+                    // never got a turn to reconnect. 160,512 of them in ten seconds.
+                    self.recoveryAttempts += 1
+                    _ = self.reattachForRetry()
+                }
                 guard let session = self.session, let storage = self.storage else {
                     continuation.resume(throwing: self.status == .noStorage ? MTPError.phoneLocked : MTPError.notConnected)
                     return
@@ -180,6 +191,7 @@ public final class MTPDevice: @unchecked Sendable {
                         continuation.resume(throwing: error)
                         return
                     }
+                    self.recoveryAttempts += 1
                     guard self.reattachForRetry(), let fresh = self.session, let storage = self.storage else {
                         continuation.resume(throwing: error)
                         return
@@ -206,6 +218,17 @@ public final class MTPDevice: @unchecked Sendable {
         return false
     }
 
+    /// One reattach attempt per five seconds at most.
+    ///
+    /// Reattaching costs four seconds when the phone is not there. Paying that for every file of a
+    /// long copy would turn a pulled cable into twenty minutes of apparent hanging, so a failure
+    /// buys a short silence before the next attempt is allowed.
+    private var lastFailedReattach: Date?
+    private func mayTryReattach() -> Bool {
+        guard let last = lastFailedReattach else { return true }
+        return Date().timeIntervalSince(last) > 5
+    }
+
     /// Opens a new session in place, for a retry. Deliberately short: a copy is waiting on it, and a
     /// phone that needs longer than this is not coming back inside one command.
     ///
@@ -215,8 +238,12 @@ public final class MTPDevice: @unchecked Sendable {
         closeSession()
         for attempt in 0 ..< 4 {
             if attempt > 0 { Thread.sleep(forTimeInterval: 1) }
-            if case .ready = tryAttach() { return true }
+            if case .ready = tryAttach() {
+                lastFailedReattach = nil
+                return true
+            }
         }
+        lastFailedReattach = Date()
         status = .searching
         return false
     }

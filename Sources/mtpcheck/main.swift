@@ -110,6 +110,8 @@ func unstage(_ probe: MTPProbe, folderName: String) throws {
     print("removed Download/\(folderName)")
 }
 
+setvbuf(stdout, nil, _IONBF, 0)
+
 let clock: DateFormatter = {
     let formatter = DateFormatter()
     // POSIX, or this Mac's own region turns "HH" into a 12-hour clock and the log loses AM/PM
@@ -279,17 +281,26 @@ if argument == "pull" {
                 }
                 let took = Date().timeIntervalSince(started)
                 let rate = Double(biggest.size) / took / 1_048_576
-                if cycle % 20 == 0 || device.recoveries > 0 {
-                    print(String(format: "[%@] cycle %d: %.2f s (%.1f MiB/s) · recovered %d time(s)",
-                                 clock.string(from: Date()), cycle, took, rate, device.recoveries))
+                if cycle % 20 == 0 || device.recoveryAttempts > 0 {
+                    print(String(format: "[%@] cycle %d: %.2f s (%.1f MiB/s) · carried through %d of %d drop(s)",
+                                 clock.string(from: Date()), cycle, took, rate,
+                                 device.recoveries, device.recoveryAttempts))
                 }
             } catch {
                 failures += 1
-                print("[\(clock.string(from: Date()))] cycle \(cycle) FAILED: \(error.localizedDescription)")
+                // What a user would be shown, and whether the partial copy is still there to resume.
+                let partial = scratch.appendingPathExtension("part")
+                let held = (try? FileManager.default.attributesOfItem(atPath: partial.path)[.size] as? NSNumber)?.uint64Value
+                print("[\(clock.string(from: Date()))] cycle \(cycle) GAVE UP after \(device.recoveryAttempts) "
+                    + "reconnect attempt(s): \(error.localizedDescription)")
+                print("      .part holds \(held.map { "\($0 / 1024) KiB" } ?? "nothing") for the next try")
+                // A real queue moves to the next file; this one would spin on the same one. Wait, so
+                // the log stays readable and the session queue is not starved by our own retries.
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
         }
         try? FileManager.default.removeItem(at: scratch)
-        print("\n\(cycle) cycles · \(device.recoveries) recovered from a dropped session · \(failures) gave up")
+        print("\n\(cycle) cycles · \(device.recoveries) of \(device.recoveryAttempts) drop(s) carried through · \(failures) gave up")
         if hashes.count == 1, let only = hashes.first {
             print("every copy identical: SHA-256 \(only.prefix(24))…")
         } else {

@@ -70,6 +70,22 @@ public enum MTPStatus: Equatable, Sendable {
     }
 }
 
+/// Whether an error means the phone has gone, rather than one command having failed.
+///
+/// The difference matters to anything running a queue: a file that will not copy is one failed row,
+/// but a cable that has come out fails every row that follows it, instantly and identically, and
+/// saying so 300 times is not information.
+public func isConnectionLost(_ error: Error) -> Bool {
+    if let mtp = error as? MTPError {
+        switch mtp {
+        case .notConnected, .phoneLocked: return true
+        default: return false
+        }
+    }
+    // Every USB failure reaching this point is the link itself, not the file.
+    return String(describing: type(of: error)).contains("Failure")
+}
+
 public enum MTPError: LocalizedError {
     case notConnected
     case phoneLocked
