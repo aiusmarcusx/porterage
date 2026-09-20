@@ -159,20 +159,35 @@ This was the second-most-requested thing in OpenMTP's tracker — open five year
 
 ## Checking what needs no phone
 
-**`swift test` cannot run on this machine.** With the command line tools and no Xcode, neither
-XCTest nor swift-testing is present, so a test target fails to compile at `import`. Rather than
-leave the one piece of logic that needs no hardware unchecked, the checks are a flag on the app:
-
 ```
-swift run PorterageApp --check
+swift test
 ```
 
-21 checks over the selection rules, exit 0 or 1, so it works in a script. Verified on 20 Sep that it
-actually fails when the logic is broken — changing the range to a half-open one turned four checks
-red and the exit code to 1. A check that cannot go red is not a check.
+**No Xcode required, and none is installed.** This took some finding, so it is written down rather
+than rediscovered:
 
-If Xcode ever gets installed, move these to a real test target; the logic is already a pure static
-function taking its inputs as arguments for exactly that reason.
+- **XCTest does not exist in the command line tools.** There is no `xctest` binary and no
+  `XCTest.framework` anywhere in `/Library/Developer/CommandLineTools`. A test target that imports
+  it fails at the import, full stop.
+- **swift-testing is half present.** The toolchain ships `libTestingMacros.dylib`, the macro plugin
+  behind `@Test` and `#expect`, but not the library those macros call into, so a bare
+  `import Testing` also fails.
+- **Adding swift-testing as a package dependency supplies the missing half**, and `swift test` then
+  runs normally. 15 MB of checkout including its own swift-syntax dependency.
+- **Pinned to exactly 0.99.0.** The tags that match the toolchain's own version — 6.3.2 and its
+  neighbours — are built for a toolchain-integrated build and **fail to link** against the command
+  line tools, looking for a `_TestingInterop` library that is not there. Do not raise this pin to
+  make the numbers agree; run `swift test` first.
+- **It costs the app build nothing.** Measured on a fresh clone: `swift build` fetches nothing at
+  all, because SwiftPM skips a dependency that only a test target uses. Only `swift test` fetches.
+
+15 tests over the selection rules. Verified on 20 Sep that they actually go red: changing the range
+to a half-open one turned five of them red and the exit code to 1. A test that cannot fail is not a
+test, and this is worth re-checking whenever the suite is touched.
+
+Everything else in this project needs a phone, which is exactly why the parts that do not should be
+kept here. The Pro licence logic, when it exists, belongs in this target too — it is pure local
+verification with no hardware in it.
 
 ## Connection states
 
