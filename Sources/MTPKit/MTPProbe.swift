@@ -131,6 +131,17 @@ public final class MTPProbe {
         }
     }
 
+    /// Opens the cable and a session, and stops there.
+    ///
+    /// `connect()` insists on storage and throws when there is none, which is right for anything that
+    /// goes on to read files and wrong for a diagnosis: a locked phone has no storage, and that is
+    /// exactly the moment somebody runs `mtpcheck mode`. This gets far enough to ask the phone what
+    /// it is, and no further.
+    public func attach() throws {
+        try link.connect()
+        try session.open()
+    }
+
     /// Reads the identity without changing anything. Safe to call repeatedly during a soak.
     public func identify() throws -> Identity {
         Identity(

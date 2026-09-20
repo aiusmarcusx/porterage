@@ -243,13 +243,22 @@ struct BrowserView: View {
     /// Moving the selection from the keyboard, which the list could not do at all: ↑ and ↓ step the
     /// cursor, and holding ⇧ drags the range behind it. Same hidden-button trick as the space bar,
     /// for the same measured reason.
+    ///
+    /// One shortcut per arrow, not two. Registering ⇧↓ alongside ↓ looks tidier and does not work:
+    /// measured against a real folder, the unmodified shortcut swallowed the keypress and ⇧↓ moved
+    /// the selection without extending it. The modifier is read from the keypress being handled, the
+    /// same way `toggle(_:)` reads it from the click being handled.
     private var arrowShortcuts: some View {
         Group {
-            shortcut(.downArrow) { browser.move(1, extending: false) }
-            shortcut(.upArrow) { browser.move(-1, extending: false) }
-            shortcut(.downArrow, modifiers: .shift) { browser.move(1, extending: true) }
-            shortcut(.upArrow, modifiers: .shift) { browser.move(-1, extending: true) }
+            shortcut(.downArrow) { browser.move(1, extending: shiftIsDown) }
+            shortcut(.upArrow) { browser.move(-1, extending: shiftIsDown) }
         }
+    }
+
+    /// `NSEvent.modifierFlags` reports the keyboard at the moment it is asked, not the event being
+    /// handled, and for a key equivalent those are not the same instant.
+    private var shiftIsDown: Bool {
+        (NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags).contains(.shift)
     }
 
     /// A shortcut with nothing to click. Switched off while a sheet or question is up, so the space
@@ -293,6 +302,18 @@ struct BrowserView: View {
     }
 
     private var fileList: some View {
+        ScrollViewReader { scroll in
+            fileRows.onChange(of: browser.selectionCursor) { _, cursor in
+                guard let cursor else { return }
+                scroll.scrollTo(cursor)
+            }
+        }
+    }
+
+    /// Arrowing past the last visible row left the selection off-screen with the list sitting still —
+    /// measured against a real folder of 344 photos, the footer read "1 selected" and nothing on
+    /// screen was highlighted. Nothing asks a List to follow a selection it did not set itself.
+    private var fileRows: some View {
         List(browser.visibleEntries, selection: $browser.selection) { entry in
             HStack(spacing: 8) {
                 Image(systemName: icon(for: entry))
@@ -330,13 +351,19 @@ struct BrowserView: View {
     // MARK: - Grid
 
     private var photoGrid: some View {
-        ScrollView {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 108), spacing: 12)], spacing: 12) {
-                ForEach(browser.visibleEntries) { entry in
-                    gridTile(entry)
+        ScrollViewReader { scroll in
+            ScrollView {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 108), spacing: 12)], spacing: 12) {
+                    ForEach(browser.visibleEntries) { entry in
+                        gridTile(entry).id(entry.id)
+                    }
                 }
+                .padding(12)
             }
-            .padding(12)
+            .onChange(of: browser.selectionCursor) { _, cursor in
+                guard let cursor else { return }
+                scroll.scrollTo(cursor)
+            }
         }
     }
 

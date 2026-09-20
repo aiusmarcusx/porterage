@@ -19,7 +19,8 @@ every fifteen seconds makes that prompt appear over and over.
 
 A locked screen blocks opening a new session: it opens, but `GetStorageIDs` comes back empty.
 
-**Whether a lock stops a session that is already running is unresolved, so assume it does.**
+**A locked screen behaves differently depending on whether traffic is already flowing — measured
+20 Sep, and this resolves most of the contradiction below.**
 
 | Measured | Result |
 |---|---|
@@ -28,8 +29,46 @@ A locked screen blocks opening a new session: it opens, but `GetStorageIDs` come
 
 In the 15 Sep runs no MTP event arrived before the stall (events were being drained between 8 MiB
 slices) and the USB product id stayed `FF40`, so neither an unread event nor a mode change explains
-it. Until the difference with 12 Sep is understood, nothing — app, README or website — may say a
-copy survives a lock. The app tells the user to keep the phone unlocked while copying.
+it.
+
+### What a locked screen actually does, measured 20 Sep
+
+`mtpcheck soak 12 DCIM/Camera` against a locked Redmi 9T, each cycle listing 360 items and reading a
+20.3 MiB photo:
+
+| | |
+|---|---|
+| Cycles completed with the screen locked | **533**, over about nine minutes |
+| Average read rate | **37.8 MiB/s** across 532 reads — no slowdown at all |
+| Interruptions | **3** |
+| Every one of them | `GetPartialObject64` (`0x95C1`) refused with `0x2002`, **immediately** — 0.5–0.6 s after the previous good cycle, not a timeout |
+| Gaps between them | 2 min 09 s, 2 min 25 s |
+| Recovery | a fresh session on the **first** retry, about 3 s later, full speed again |
+
+Two states, not one, and the difference is whether traffic is already flowing:
+
+- **Locked and cold.** A session opened against an idle locked phone gets an empty storage list. Seen
+  twice on 20 Sep: at the start, and again within a minute of the soak stopping — the phone gives
+  storage up once nobody is asking.
+- **Locked and busy.** A session under continuous traffic keeps serving at full speed. It is thrown
+  out roughly every two minutes, always on the same command with the same code, and a reconnect
+  brings it straight back.
+
+That reconciles 12 Sep with 15 Sep at last: a lock does not stop the phone talking, it drops the
+session every couple of minutes. Whether you notice depends entirely on whether the client reconnects
+and on how long a single read takes. The 15 Sep runs read 512 MiB at a time — about fourteen seconds
+each, so a refusal almost always landed mid-read; today's reads were 0.55 s and almost always landed
+between them.
+
+**The app does not reconnect mid-transfer.** `MTPDevice` retries while *looking* for a phone, but a
+command refused during a copy is handed to the caller as an error, and nothing tries again. So on
+today's evidence a copy running with the screen locked stops after about two minutes with an error —
+recoverable, because a copy to the Mac resumes from its `.part` file, but not by itself. Until that
+changes, the advice to keep the phone unlocked stays exactly as it is on the app and the website.
+
+**Still open:** whether a *long* single read is worse than an interrupted stream of short ones — the
+15 Sep note says the session only came back after unlocking, which today's runs never needed. It
+needs a file of a few hundred MiB on the phone to settle, and there was none to hand.
 
 ### 2. Drain the phone's event queue
 
@@ -169,11 +208,20 @@ This was the second-most-requested thing in OpenMTP's tracker — open five year
 author calls shift+arrow their workaround, which is why the keyboard is worth having as well as the
 mouse.
 
-**The rules are tested; the wiring is not.** `PhoneBrowser.clicking` and `.moving` are pure and have
-29 tests behind them, but whether an arrow key actually reaches the list is the kind of thing this
-app has been wrong about before — `.onKeyPress` and `.onDeleteCommand` both silently never fired.
-The arrows use the same hidden-button trick that works for the space bar, but it has not been
-pressed against a real folder. See the outstanding list.
+**Pressed against a real folder on 20 Sep, and both halves of the wiring were wrong** — while all
+29 tests of the rules passed, which is exactly the split a test suite cannot catch:
+
+- **⇧↓ moved the selection without extending it.** Registering `⇧↓` as its own shortcut beside `↓`
+  does not work: the unmodified one swallows the keypress. There is now one shortcut per arrow, and
+  the modifier is read from the keypress being handled through `NSApp.currentEvent`, the same way
+  `toggle(_:)` reads it from the click being handled.
+- **The list did not scroll to follow the cursor.** Arrowing past the last visible row left the
+  footer reading "1 selected" with nothing highlighted on screen. `List` does not follow a selection
+  it did not set itself; both the list and the grid now sit in a `ScrollViewReader` and scroll to the
+  cursor when it changes.
+
+Verified afterwards on the same folder of 344 photos: ⇧↓ twice gives three rows, ⇧↑ takes it back to
+two, and arrowing off the bottom scrolls.
 
 ## Checking what needs no phone
 
@@ -434,15 +482,21 @@ that, not the old shortcut.
 On the test phone (Redmi 9T):
 
 - [ ] Pull the cable mid-copy, and close the MacBook lid mid-copy. — `mtpcheck soak`, pull whenever.
-- [ ] Find why a screen lock stopped a running copy on 15 Sep but not on 12 Sep. — `mtpcheck soak`,
-  lock the screen mid-cycle. This is the one that is load-bearing: the app and the website both tell
-  the user to keep the phone unlocked purely because the question is open.
+- [x] ~~Find why a screen lock stopped a running copy on 15 Sep but not on 12 Sep.~~ Answered
+  20 Sep — see "What a locked screen actually does". A lock drops the session about every two
+  minutes; everything else follows from whether the client reconnects.
+- [ ] **Reconnect and carry on when a command is refused mid-copy.** Now the highest-value thing
+  there is: it is what would let the app say a locked screen does not matter, and a locked screen is
+  the single most hated thing about Android File Transfer. The engine already survives it — only the
+  app layer gives up.
+- [ ] Whether one long read is worse than a stream of short ones under a locked screen. Needs a file
+  of a few hundred MiB on the phone.
 - [ ] Confirm Photo transfer (PTP) mode is reported as such. — switch the phone over, `mtpcheck mode`.
-- [ ] **Press the arrow keys against a real folder.** The rules are tested; the wiring is not, and
-  this app has twice shipped a key that never arrived. Check ↑ ↓ ⇧↑ ⇧↓ in both the list and the grid.
-- [ ] **Whether the list scrolls to follow the cursor.** Arrowing past the visible rows almost
-  certainly moves the selection off-screen — nothing asks the list to scroll to it. Needs rows to
-  see, then a `ScrollViewReader`.
+  Half done 20 Sep: in File transfer the phone **does** advertise vendor extension 6 and `mtpcheck
+  mode` reads it correctly, so the positive case is measured rather than taken from AOSP's source.
+  The negative case still needs the phone switched over.
+- [x] ~~Press the arrow keys against a real folder.~~ Done 20 Sep; two bugs found and fixed, see
+  "Selecting rows". Still unpressed: ⇧-click itself, and the arrows in the grid rather than the list.
 - [ ] An iPhone plugged in beside the phone: it must be ignored, and the phone still found.
 
 On a phone from another maker (nothing here has ever met one):

@@ -207,6 +207,19 @@ func soak(path: String, minutes: Double) {
 let argument = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "DCIM/Camera"
 
 // These two run their own connection, so they are handled before the shared probe is opened.
+if argument == "mode" {
+    do {
+        let probe = try MTPProbe()
+        try probe.attach()
+        describe(try probe.identify())
+        probe.disconnect()
+    } catch {
+        print("ERROR: \(error.localizedDescription)")
+        exit(1)
+    }
+    exit(0)
+}
+
 if argument == "soak" {
     let minutes = CommandLine.arguments.count > 2 ? Double(CommandLine.arguments[2]) ?? 10 : 10
     soak(path: CommandLine.arguments.count > 3 ? CommandLine.arguments[3] : "DCIM/Camera", minutes: minutes)
@@ -224,8 +237,6 @@ do {
         try stage(probe, folderName: CommandLine.arguments[2], from: CommandLine.arguments[3])
     } else if argument == "unstage", CommandLine.arguments.count > 2 {
         try unstage(probe, folderName: CommandLine.arguments[2])
-    } else if argument == "mode" {
-        describe(try probe.identify())
     } else if argument == "selftest" {
         try selftest(probe)
         print(failures == 0 ? "\nALL PASSED." : "\n\(failures) CHECK(S) FAILED.")
