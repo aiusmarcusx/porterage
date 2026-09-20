@@ -277,6 +277,26 @@ Two things that were not obvious:
 All five states were checked by forcing each one in a throwaway build and looking at it, since four
 of them cannot be reached without hardware.
 
+## Photo transfer mode, measured at last
+
+Switched the phone to *Transfer photos* on 21 Sep. Everything that had only been read out of AOSP's
+source held:
+
+```
+product      Redmi 9T (id FF10)        ← FF40 in File transfer
+interface    still-image class 6       ← vendor MTP, class 255 in File transfer
+says MTP     no                        ← vendor extension 6 absent
+→ Photo transfer / PTP
+```
+
+`ioreg` agrees on the product id independently, and the app puts up its Photo transfer screen with
+the right instruction.
+
+**The storage list is not the tell.** In PTP mode the phone still reports one storage of 47.1 GiB, so
+nothing about storage distinguishes this state — it is `advertisesMTP()` alone that catches it. That
+check looked like a nicety when it was written from documentation; it is the only thing standing
+between this state and a confusing half-working file browser.
+
 ## A closed lid is safe; a pulled cable is not
 
 Measured 21 Sep, with macOS's own `pmset -g log` as the witness rather than this project's tooling.
@@ -356,7 +376,7 @@ This is where other MTP clients do badly: every failure collapses into one unhel
 | Situation | Signature | What to tell the user |
 |---|---|---|
 | Screen locked | Session opens, `GetStorageIDs` comes back empty | "Unlock the phone" |
-| Set to PTP / photo transfer | Interface class 6 instead of 255, PID `FF10` instead of `FF40`. AOSP's `MtpServer` also leaves vendor extension 6 (`microsoft.com`) out of `GetDeviceInfo`, which is what the app checks — taken from the source, not yet measured | "Switch to File transfer" |
+| Set to PTP / photo transfer | Interface class 6 instead of 255, PID `FF10` instead of `FF40`, and vendor extension 6 (`microsoft.com`) absent from `GetDeviceInfo` — **all three measured on the phone 21 Sep**, having been read out of AOSP's source until then | "Switch to File transfer" |
 | Charging only | No MTP interface on the bus | "Pull down the notification shade and choose File transfer" |
 | Another app holds it | `libusb_claim_interface` returns busy | "Quit OpenMTP / Android File Transfer" |
 | MTP wedged (see rule 2) | Opening a session fails even after a USB reset, twice in a row | "Unplug and replug the cable" |
@@ -576,10 +596,8 @@ On the test phone (Redmi 9T):
 - [ ] **Reconnect for uploads.** Deliberately not done. A dropped session can leave a half-written
   object on the phone, the tidy-up delete goes through the session that just died, and the retry then
   meets its own name — which the phone rejects. It needs its own design, not the download's.
-- [ ] Confirm Photo transfer (PTP) mode is reported as such. — switch the phone over, `mtpcheck mode`.
-  Half done 20 Sep: in File transfer the phone **does** advertise vendor extension 6 and `mtpcheck
-  mode` reads it correctly, so the positive case is measured rather than taken from AOSP's source.
-  The negative case still needs the phone switched over.
+- [x] ~~Confirm Photo transfer (PTP) mode is reported as such.~~ Done 21 Sep, both directions. See
+  "Photo transfer mode, measured at last".
 - [x] ~~Press the arrow keys against a real folder.~~ Done 20 Sep; two bugs found and fixed, see
   "Selecting rows". Still unpressed: ⇧-click itself, and the arrows in the grid rather than the list.
 - [ ] An iPhone plugged in beside the phone: it must be ignored, and the phone still found.
