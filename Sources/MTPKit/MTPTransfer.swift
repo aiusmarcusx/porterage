@@ -38,7 +38,10 @@ public extension MTPDevice {
         progress: @escaping (UInt64, UInt64) -> Void
     ) async throws {
         let partial = destination.appendingPathExtension("part")
-        try await perform { session, _ in
+        // Safe to run twice: the first thing it does is measure the .part file and carry on from
+        // there, so a second run after a reconnect resumes rather than restarts. This is what lets a
+        // copy survive a locked screen, which drops the session about every two minutes.
+        try await perform(retryingOnce: true) { session, _ in
             let fm = FileManager.default
             var offset: UInt64 = 0
 

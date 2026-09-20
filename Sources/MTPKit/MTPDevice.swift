@@ -25,6 +25,8 @@ public final class MTPDevice: @unchecked Sendable {
     private var watching = false
     /// Sessions that would not open in a row, on a phone whose interface was claimed.
     private var failedOpens = 0
+    /// How many times a command was carried through a dropped session. Diagnostics only.
+    public private(set) var recoveries = 0
     private var status: MTPStatus = .searching {
         didSet {
             guard status != oldValue else { return }
@@ -150,7 +152,16 @@ public final class MTPDevice: @unchecked Sendable {
     // MARK: - Plumbing
 
     /// Runs `body` on the session queue with a live session, or throws a state the UI can explain.
-    func perform<T>(_ body: @escaping (PTPSession, UInt32) throws -> T) async throws -> T {
+    ///
+    /// `retryingOnce` re-runs `body` against a fresh session when the phone threw this one away
+    /// mid-command. **Only pass it for work that is safe to run twice.** A download is, because it
+    /// resumes from its own `.part` file and so picks up exactly where it stopped; an upload is not,
+    /// because a half-written object may still be sitting on the phone under the name the retry
+    /// would want.
+    func perform<T>(
+        retryingOnce: Bool = false,
+        _ body: @escaping (PTPSession, UInt32) throws -> T
+    ) async throws -> T {
         try await withCheckedThrowingContinuation { continuation in
             queue.async { [weak self] in
                 guard let self else { return continuation.resume(throwing: MTPError.notConnected) }
@@ -164,9 +175,49 @@ public final class MTPDevice: @unchecked Sendable {
                     continuation.resume(returning: value)
                 } catch {
                     session.drainEvents()
-                    continuation.resume(throwing: error)
+                    // A stop the user asked for is not a fault to recover from.
+                    guard retryingOnce, !(error is TransferCancelled), self.sessionIsDead() else {
+                        continuation.resume(throwing: error)
+                        return
+                    }
+                    guard self.reattachForRetry(), let fresh = self.session, let storage = self.storage else {
+                        continuation.resume(throwing: error)
+                        return
+                    }
+                    do {
+                        let value = try body(fresh, storage.id)
+                        fresh.drainEvents()
+                        self.recoveries += 1
+                        continuation.resume(returning: value)
+                    } catch {
+                        fresh.drainEvents()
+                        continuation.resume(throwing: error)
+                    }
                 }
             }
         }
+    }
+
+    /// Whether the phone has stopped answering this session, as opposed to refusing one command for
+    /// a reason of its own. The same liveness question `pollConnected` asks every two seconds.
+    private func sessionIsDead() -> Bool {
+        guard let session else { return true }
+        guard let first = try? session.storages().first, first.capacity > 0 else { return true }
+        return false
+    }
+
+    /// Opens a new session in place, for a retry. Deliberately short: a copy is waiting on it, and a
+    /// phone that needs longer than this is not coming back inside one command.
+    ///
+    /// Measured 20 Sep on a locked phone: three drops in nine minutes, every one of them back on the
+    /// first attempt about three seconds later.
+    private func reattachForRetry() -> Bool {
+        closeSession()
+        for attempt in 0 ..< 4 {
+            if attempt > 0 { Thread.sleep(forTimeInterval: 1) }
+            if case .ready = tryAttach() { return true }
+        }
+        status = .searching
+        return false
     }
 }

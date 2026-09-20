@@ -33,42 +33,44 @@ it.
 
 ### What a locked screen actually does, measured 20 Sep
 
-`mtpcheck soak 12 DCIM/Camera` against a locked Redmi 9T, each cycle listing 360 items and reading a
-20.3 MiB photo:
+Three runs against the same phone and the same 20.3 MiB photo, one variable at a time:
 
-| | |
-|---|---|
-| Cycles completed with the screen locked | **533**, over about nine minutes |
-| Average read rate | **37.8 MiB/s** across 532 reads — no slowdown at all |
-| Interruptions | **3** |
-| Every one of them | `GetPartialObject64` (`0x95C1`) refused with `0x2002`, **immediately** — 0.5–0.6 s after the previous good cycle, not a timeout |
-| Gaps between them | 2 min 09 s, 2 min 25 s |
-| Recovery | a fresh session on the **first** retry, about 3 s later, full speed again |
+| Run | Screen | Reads the event queue | Cycles | Sessions lost | Rate |
+|---|---|---|---|---|---|
+| `mtpcheck soak` | locked | no | 533 | **3** | 37.8 MiB/s |
+| `mtpcheck soak` | **unlocked** | no | 507 | **2** | 37.7 MiB/s |
+| `mtpcheck pull` | locked | **yes** | 875 | **0** | 37.5 MiB/s |
 
-Two states, not one, and the difference is whether traffic is already flowing:
+Every loss was identical: `GetPartialObject64` (`0x95C1`) refused with `0x2002`, immediately — 0.5 to
+0.7 s after the previous good cycle, never a timeout — and a fresh session took it straight back at
+full speed.
 
-- **Locked and cold.** A session opened against an idle locked phone gets an empty storage list. Seen
-  twice on 20 Sep: at the start, and again within a minute of the soak stopping — the phone gives
-  storage up once nobody is asking.
-- **Locked and busy.** A session under continuous traffic keeps serving at full speed. It is thrown
-  out roughly every two minutes, always on the same command with the same code, and a reconnect
-  brings it straight back.
+**The lock has nothing to do with it.** An unlocked phone throws the session away just as readily.
+What decides it is whether anyone is reading the phone's event queue: `MTPProbe` does not, `MTPDevice`
+does after every command, and the third row is nine minutes of a locked phone at full speed with no
+interruption at all.
 
-That reconciles 12 Sep with 15 Sep at last: a lock does not stop the phone talking, it drops the
-session every couple of minutes. Whether you notice depends entirely on whether the client reconnects
-and on how long a single read takes. The 15 Sep runs read 512 MiB at a time — about fourteen seconds
-each, so a refusal almost always landed mid-read; today's reads were 0.55 s and almost always landed
-between them.
+The first version of this section said the lock caused the drops. It was written from the locked run
+alone, before the unlocked control existed, and it was wrong. One run is a measurement; two runs
+differing in one variable is a finding.
 
-**The app does not reconnect mid-transfer.** `MTPDevice` retries while *looking* for a phone, but a
-command refused during a copy is handed to the caller as an error, and nothing tries again. So on
-today's evidence a copy running with the screen locked stops after about two minutes with an error —
-recoverable, because a copy to the Mac resumes from its `.part` file, but not by itself. Until that
-changes, the advice to keep the phone unlocked stays exactly as it is on the app and the website.
+So **rule 2 above is bigger than it looks.** An unread event queue does not only decay small-file
+writes and wedge MTP after ~211 objects; it also loses the session every two to four minutes on plain
+reads. The app has always drained, which is why none of this was ever visible through the app.
 
-**Still open:** whether a *long* single read is worse than an interrupted stream of short ones — the
-15 Sep note says the session only came back after unlocking, which today's runs never needed. It
-needs a file of a few hundred MiB on the phone to settle, and there was none to hand.
+### Two locked states, which is separate and still true
+
+- **Locked and idle.** A session opened against a locked phone that nobody is talking to gets an
+  empty storage list. Seen twice on 20 Sep: at the start of the session, and again within a minute of
+  a soak ending — the phone gives storage up once nothing is asking.
+- **Locked and busy.** With the event queue drained, a running session is untouched by the lock.
+
+**Still open, and it is the only thing keeping the "keep the phone unlocked" warning on the app and
+the website:** the 15 Sep stall was measured *with* draining on, reading 512 MiB at a time — about
+fourteen seconds a read — and the session only came back after unlocking. Today's reads were 0.55 s.
+Whether a long single read is what a lock actually breaks has not been tested, because there was no
+file that size on the phone. Stage one with `mtpcheck stage` and read it back under a locked screen;
+that one run decides whether the warning can go.
 
 ### 2. Drain the phone's event queue
 
@@ -482,15 +484,20 @@ that, not the old shortcut.
 On the test phone (Redmi 9T):
 
 - [ ] Pull the cable mid-copy, and close the MacBook lid mid-copy. — `mtpcheck soak`, pull whenever.
-- [x] ~~Find why a screen lock stopped a running copy on 15 Sep but not on 12 Sep.~~ Answered
-  20 Sep — see "What a locked screen actually does". A lock drops the session about every two
-  minutes; everything else follows from whether the client reconnects.
-- [ ] **Reconnect and carry on when a command is refused mid-copy.** Now the highest-value thing
-  there is: it is what would let the app say a locked screen does not matter, and a locked screen is
-  the single most hated thing about Android File Transfer. The engine already survives it — only the
-  app layer gives up.
-- [ ] Whether one long read is worse than a stream of short ones under a locked screen. Needs a file
-  of a few hundred MiB on the phone.
+- [x] ~~Find why a screen lock stopped a running copy on 15 Sep but not on 12 Sep.~~ Mostly answered
+  20 Sep — see the table. The periodic session loss is an unread event queue, not the lock, and the
+  app has always drained. What is left is the 512 MiB case below.
+- [ ] **Stage a file of a few hundred MiB and read it back under a locked screen.** The one run that
+  decides whether the "keep the phone unlocked" warning can come off the app and the website. 15 Sep
+  stalled on a 512 MiB read with draining on; 20 Sep did not stall in 875 reads of 20 MiB. Read
+  length is the only variable left.
+- [x] ~~Reconnect and carry on when a command is refused mid-copy.~~ Built 20 Sep for downloads only,
+  where the `.part` file makes a second attempt a resume rather than a restart. **Not proven to fire:
+  the 875-cycle run never lost a session, so it was never called.** Pull the cable mid-copy to prove
+  it.
+- [ ] **Reconnect for uploads.** Deliberately not done. A dropped session can leave a half-written
+  object on the phone, the tidy-up delete goes through the session that just died, and the retry then
+  meets its own name — which the phone rejects. It needs its own design, not the download's.
 - [ ] Confirm Photo transfer (PTP) mode is reported as such. — switch the phone over, `mtpcheck mode`.
   Half done 20 Sep: in File transfer the phone **does** advertise vendor extension 6 and `mtpcheck
   mode` reads it correctly, so the positive case is measured rather than taken from AOSP's source.

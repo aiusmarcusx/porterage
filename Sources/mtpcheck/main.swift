@@ -220,6 +220,77 @@ if argument == "mode" {
     exit(0)
 }
 
+// `soak` drives MTPProbe, the simplest thing that can talk to a phone. `pull` drives MTPDevice,
+// which is what the app itself uses — queue, held-open session, event draining and, since 20 Sep,
+// the reconnect that carries a download through a dropped session. Locking the screen during this
+// is the test that reconnect actually works, because it is the only way to make the phone throw the
+// session away on purpose.
+if argument == "pull" {
+    let minutes = CommandLine.arguments.count > 2 ? Double(CommandLine.arguments[2]) ?? 5 : 5
+    let path = CommandLine.arguments.count > 3 ? CommandLine.arguments[3] : "DCIM/Camera"
+    let done = DispatchSemaphore(value: 0)
+
+    Task {
+        let device = MTPDevice()
+        device.start()
+
+        // Wait for a phone rather than assume one.
+        var waited = 0
+        while await device.currentFreeSpace() == nil, waited < 60 {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            waited += 1
+        }
+        guard await device.currentFreeSpace() != nil else {
+            print("no phone became ready"); done.signal(); return
+        }
+
+        // Walk to the folder.
+        var folder = MTPDevice.rootFolder
+        for part in path.split(separator: "/") {
+            guard let match = try? await device.children(of: folder).first(where: {
+                $0.isFolder && $0.name.lowercased() == part.lowercased()
+            }) else { print("no folder \(path)"); done.signal(); return }
+            folder = match.id
+        }
+
+        let entries = (try? await device.children(of: folder)) ?? []
+        guard let biggest = entries.filter({ !$0.isFolder && $0.size > 0 })
+            .max(by: { $0.size < $1.size }) else { print("nothing to read"); done.signal(); return }
+
+        let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("porterage-pull.bin")
+        let deadline = Date().addingTimeInterval(minutes * 60)
+        var cycle = 0, failures = 0
+
+        print("Pulling \(biggest.name) (\(String(format: "%.1f", Double(biggest.size) / 1_048_576)) MiB) "
+            + "through the app's own session for \(String(format: "%.0f", minutes)) minutes.")
+        print("Lock the screen whenever you like — every recovery is counted.\n")
+
+        while Date() < deadline {
+            cycle += 1
+            try? FileManager.default.removeItem(at: scratch)
+            let started = Date()
+            do {
+                try await device.download(biggest, to: scratch) { _, _ in }
+                let took = Date().timeIntervalSince(started)
+                let rate = Double(biggest.size) / took / 1_048_576
+                if cycle % 20 == 0 || device.recoveries > 0 {
+                    print(String(format: "[%@] cycle %d: %.2f s (%.1f MiB/s) · recovered %d time(s)",
+                                 clock.string(from: Date()), cycle, took, rate, device.recoveries))
+                }
+            } catch {
+                failures += 1
+                print("[\(clock.string(from: Date()))] cycle \(cycle) FAILED: \(error.localizedDescription)")
+            }
+        }
+        try? FileManager.default.removeItem(at: scratch)
+        print("\n\(cycle) cycles · \(device.recoveries) recovered from a dropped session · \(failures) gave up")
+        done.signal()
+    }
+
+    done.wait()
+    exit(0)
+}
+
 if argument == "soak" {
     let minutes = CommandLine.arguments.count > 2 ? Double(CommandLine.arguments[2]) ?? 10 : 10
     soak(path: CommandLine.arguments.count > 3 ? CommandLine.arguments[3] : "DCIM/Camera", minutes: minutes)
