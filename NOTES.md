@@ -581,10 +581,12 @@ On the test phone (Redmi 9T):
   20 Sep runs answered a different question — the periodic session losses are an unread event queue,
   which the app already drains — and their screen state turned out not to have been observed, so they
   say nothing about the lock either way.
-- [ ] **Read `Download/locktest` back under a screen that is verifiably locked.** 512 MiB is staged
-  for it. This is the run that decides whether the "keep the phone unlocked" warning can come off the
-  app and the website: 15 Sep stalled on a read that long with draining on, 20 Sep passed 875 reads
-  of 20 MiB. Read length is the variable. Whoever runs it must confirm the screen is actually off.
+- [ ] **Read a file of a few hundred MiB back under a screen that is verifiably locked.** The run
+  that decides whether the "keep the phone unlocked" warning can come off the app and the website:
+  15 Sep stalled on a read that long with draining on, 20–21 Sep passed 1,900 reads of 20 MiB and 45
+  of 512 MiB without one. Read length is the variable. **Stage the file first — `mtpcheck stage
+  <name> <dir>` — because the one used on 21 Sep was removed again afterwards; and read the screen
+  state off the wire rather than asking, which is what spoiled the 20 Sep runs.**
 - [x] ~~Reconnect and carry on when a command is refused mid-copy.~~ Built 20 Sep for downloads only,
   where the `.part` file makes a second attempt a resume rather than a restart. **Still unproven after
   about 1,900 reads: nothing in the app's path has ever dropped a session, so it has never been
